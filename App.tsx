@@ -938,13 +938,13 @@ export const App: React.FC = () => {
                     {/* Liels, skaidrs profesionāls TV Timecode augšējā kreisajā stūrī */}
                     <div
                       aria-label={`Pašreizējais laika kods ${formatMMSS(currentTime)}`}
-                      className="absolute top-3 left-3 sm:top-4 sm:left-4 z-10 pointer-events-none select-none bg-black/80 backdrop-blur-md px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-white/20 shadow-2xl flex items-baseline gap-1.5"
+                      className="absolute top-3 left-3 sm:top-5 sm:left-5 z-30 pointer-events-none select-none bg-black/85 backdrop-blur-md px-4 py-2 sm:px-5 sm:py-2.5 rounded-2xl border-2 border-white/20 shadow-2xl flex items-baseline gap-2"
                     >
-                      <span className="font-mono-tc font-black text-xl sm:text-3xl tracking-wider text-[#2DD4BF] drop-shadow-md">
+                      <span className="font-mono-tc font-black text-2xl sm:text-4xl tracking-wider text-[#2DD4BF] drop-shadow-lg">
                         {formatMMSS(currentTime)}
                       </span>
                       {duration > 0 && (
-                        <span className="font-mono-tc text-xs sm:text-base font-bold text-white/50">
+                        <span className="font-mono-tc text-xs sm:text-sm font-bold text-white/60">
                           / {formatMMSS(duration)}
                         </span>
                       )}
