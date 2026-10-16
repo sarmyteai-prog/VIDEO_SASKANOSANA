@@ -20,12 +20,11 @@ export function formatMMSS(totalSeconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(remSec).padStart(2, '0')}`;
 }
 
-// Format cut range as "✂️ MM:SS – MM:SS (-XXs)"
+// Format cut range as "MM:SS – MM:SS"
 export function formatCutRange(startSec: number, endSec: number): string {
   const s = Math.min(startSec, endSec);
   const e = Math.max(startSec, endSec);
-  const diff = e - s;
-  return `✂️ ${formatMMSS(s)} – ${formatMMSS(e)} (-${diff}s)`;
+  return `${formatMMSS(s)} – ${formatMMSS(e)}`;
 }
 
 // Parse MM:SS string into seconds
@@ -261,7 +260,6 @@ export const App: React.FC = () => {
   const [editingCommentText, setEditingCommentText] = useState<string>('');
 
   const [copiedList, setCopiedList] = useState<boolean>(false);
-  const [copiedShareUrl, setCopiedShareUrl] = useState<boolean>(false);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
 
   // TV Post-Production Rough Cut Calculations: Total cut duration & final broadcast runtime ("Gala raidījums")
@@ -629,39 +627,19 @@ export const App: React.FC = () => {
     if (listToCopy.length === 0) return;
 
     const lines = [
-      `🎬 ${projectTitle}`,
+      projectTitle,
       duration > 0 && totalCutSeconds > 0
-        ? `⏱ Sākotnējais ilgums: ${formatMMSS(duration)} | Izgriezts: -${formatMMSS(totalCutSeconds)} (-${totalCutSeconds}s) | Gala raidījums: ${formatMMSS(finalDuration)}`
+        ? `Sākotnējais ilgums: ${formatMMSS(duration)} | Izgriezts: -${formatMMSS(totalCutSeconds)} (-${totalCutSeconds}s) | Gala raidījums: ${formatMMSS(finalDuration)}`
         : '',
       `──────────────────────────────`,
-      ...listToCopy.map(c => `${c.resolved ? '[✓] ' : ''}${c.timecode} — ${c.text}`),
+      ...listToCopy.map(c => `${c.resolved ? '[OK] ' : ''}${c.timecode} — ${c.text}`),
     ].filter(Boolean);
 
     navigator.clipboard.writeText(lines.join('\n'));
     setCopiedList(true);
     setLiveAnnouncement('Komentāru saraksts nokopēts starpliktuvē.');
-    setTimeout(() => setCopiedList(false), 2500);
   };
 
-  // Copy shareable editor URL
-  const copyEditorShareLink = () => {
-    const url = new URL(window.location.origin + window.location.pathname);
-    if (resolvedSource.type === 'gdrive' && resolvedSource.gdriveId) {
-      url.searchParams.set('gd', resolvedSource.gdriveId);
-    } else if (activeVideoInput && !localObjectUrl) {
-      url.searchParams.set('v', activeVideoInput);
-    }
-    url.searchParams.set('t', projectTitle);
-    if (comments.length > 0) {
-      const encoded = encodeCommentsForUrl(comments);
-      if (encoded) url.searchParams.set('c', encoded);
-    }
-
-    navigator.clipboard.writeText(url.toString());
-    setCopiedShareUrl(true);
-    setLiveAnnouncement('Saite redaktoram nokopēta starpliktuvē.');
-    setTimeout(() => setCopiedShareUrl(false), 2500);
-  };
 
   const handleApplyVideoSource = (e: React.FormEvent) => {
     e.preventDefault();
@@ -844,37 +822,7 @@ export const App: React.FC = () => {
                 <polyline points="17 8 12 3 7 8"/>
                 <line x1="12" y1="3" x2="12" y2="15"/>
               </svg>
-              <span>📁 Augšupielādēt video (.mp4)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={copyEditorShareLink}
-              className={`min-h-[42px] px-4 py-2 rounded-xl text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1.5 ${
-                copiedShareUrl
-                  ? 'bg-[#10B981] border-[#10B981] text-white'
-                  : isDark
-                    ? 'bg-[#152336] border-[#243B56] text-[#E8F0F6] hover:border-[#2DD4BF]'
-                    : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:border-[#0E7C86]'
-              }`}
-              title="Nokopēt saiti ar komentāriem"
-            >
-              {copiedShareUrl ? (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  <span>Saite nokopēta!</span>
-                </>
-              ) : (
-                <>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-                  </svg>
-                  <span>Kopēt saiti redaktoram</span>
-                </>
-              )}
+              <span>Augšupielādēt video (.mp4)</span>
             </button>
 
             <button
@@ -967,7 +915,7 @@ export const App: React.FC = () => {
                         <polyline points="17 8 12 3 7 8"/>
                         <line x1="12" y1="3" x2="12" y2="15"/>
                       </svg>
-                      <span>📁 Izvēlēties .mp4 failu no datora</span>
+                      <span>Izvēlēties .mp4 failu no datora</span>
                     </button>
                   </div>
                 ) : (
@@ -1020,7 +968,7 @@ export const App: React.FC = () => {
                         }}
                         className="min-h-[42px] px-4 py-2 rounded-xl bg-[#162740] border border-[#2A4565] text-white text-xs font-bold cursor-pointer ui-fast flex items-center gap-1.5"
                       >
-                        <span>📁 Izvēlēties citu .mp4 failu</span>
+                        <span>Izvēlēties citu .mp4 failu</span>
                       </button>
                     </div>
                   </div>
@@ -1057,7 +1005,7 @@ export const App: React.FC = () => {
                         style={{ transform: `scaleX(${progressRatio})` }}
                       />
 
-                      {/* Render Cut Ranges on the Scrubber (✂️ Īsināšanas segmenti) */}
+                      {/* Render Cut Ranges on the Scrubber */}
                       {comments.map(c => {
                         if (c.endSeconds && c.endSeconds > c.seconds && duration > 0) {
                           const startPct = Math.max(0, (c.seconds / duration) * 100);
@@ -1175,9 +1123,9 @@ export const App: React.FC = () => {
                             className="ml-1 sm:ml-2 px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/50 text-rose-300 text-[11px] font-bold flex items-center gap-1.5"
                             title={`Kopā izgriezts -${formatMMSS(totalCutSeconds)} (-${totalCutSeconds}s). Gala raidījuma garums: ${formatMMSS(finalDuration)}`}
                           >
-                            <span className="text-rose-400">✂️ -{formatMMSS(totalCutSeconds)}</span>
+                            <span className="text-rose-400">-{formatMMSS(totalCutSeconds)}</span>
                             <span className="opacity-40">|</span>
-                            <span className="text-white">📺 Gala: {formatMMSS(finalDuration)}</span>
+                            <span className="text-white">Gala: {formatMMSS(finalDuration)}</span>
                           </span>
                         )}
                       </div>
@@ -1264,7 +1212,6 @@ export const App: React.FC = () => {
                         : 'Piefiksēt beigu punktu un uzreiz izgriezt (Out / O taustiņš)'
                     }
                   >
-                    <span aria-hidden="true">✂️</span>
                     <span>+ Out</span>
                     {inSeconds !== null && (
                       <span className="px-1.5 py-0.5 rounded-md bg-black/40 font-mono-tc text-[11px] font-bold">
@@ -1413,19 +1360,16 @@ export const App: React.FC = () => {
                     ? 'bg-rose-950/30 border-rose-500/40'
                     : 'bg-rose-50 border-rose-300'
                 }`}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-base" aria-hidden="true">✂️</span>
-                    <div>
-                      <div className="text-[10px] uppercase font-bold text-rose-400">Izgriežams kopā:</div>
-                      <div className="font-extrabold text-xs sm:text-sm text-rose-500">
-                        -{formatMMSS(totalCutSeconds)} <span className="text-[10px] font-normal opacity-75">(-{totalCutSeconds}s)</span>
-                      </div>
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-rose-400">Izgriežams kopā:</div>
+                    <div className="font-extrabold text-xs sm:text-sm text-rose-500">
+                      -{formatMMSS(totalCutSeconds)} <span className="text-[10px] font-normal opacity-75">(-{totalCutSeconds}s)</span>
                     </div>
                   </div>
 
                   <div className="text-right">
-                    <div className="text-[10px] uppercase font-bold text-[#2DD4BF] flex items-center justify-end gap-1">
-                      <span>📺 Gala raidījums:</span>
+                    <div className="text-[10px] uppercase font-bold text-[#2DD4BF]">
+                      Gala raidījums:
                     </div>
                     <div className="font-extrabold text-xs sm:text-sm text-[#2DD4BF]">
                       {formatMMSS(finalDuration)}
@@ -1590,7 +1534,6 @@ export const App: React.FC = () => {
                         }`}
                         title={`Pāriet uz ${c.timecode} (${c.seconds} sek.)`}
                       >
-                        {isCutComment && <span aria-hidden="true">✂️</span>}
                         <span>{c.timecode}</span>
                         {cutDiffSec !== null && (
                           <span className="px-1.5 py-0.5 rounded-md bg-black/40 text-[10px] font-extrabold font-mono-tc">
