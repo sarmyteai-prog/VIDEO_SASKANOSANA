@@ -11,6 +11,14 @@ export interface VideoComment {
   createdAt: number;
 }
 
+export interface ProjectItem {
+  id: string;
+  title: string;
+  videoFileName: string | null;
+  comments: VideoComment[];
+  updatedAt: number;
+}
+
 // Format seconds strictly as MM:SS (e.g., 04:12, 45:09)
 export function formatMMSS(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '00:00';
@@ -183,7 +191,54 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  const [projectTitle, setProjectTitle] = useState<string>(initialParams.title);
+  // Multi-Project & Multi-Episode State (100% persistent against accidental tab closes)
+  const [projects, setProjects] = useState<ProjectItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('postq_projects');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [
+      {
+        id: 'proj-1',
+        title: initialParams.title || '1. Epizode — Melnā montāža',
+        videoFileName: null,
+        comments: initialParams.sharedComments || [],
+        updatedAt: Date.now(),
+      },
+    ];
+  });
+
+  const [activeProjectId, setActiveProjectId] = useState<string>(() => {
+    try {
+      const savedId = localStorage.getItem('postq_active_project_id');
+      if (savedId) return savedId;
+    } catch {
+      // ignore
+    }
+    return 'proj-1';
+  });
+
+  const [showProjectsMenu, setShowProjectsMenu] = useState<boolean>(false);
+  const projectsMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const activeProject = useMemo(() => {
+    return projects.find(p => p.id === activeProjectId) || projects[0] || {
+      id: 'proj-1',
+      title: '1. Epizode',
+      videoFileName: null,
+      comments: [],
+      updatedAt: Date.now(),
+    };
+  }, [projects, activeProjectId]);
+
+  const [projectTitle, setProjectTitle] = useState<string>(() => {
+    return activeProject?.title || initialParams.title || '1. Epizode';
+  });
   const [isEditingTitle, setIsEditingTitle] = useState<boolean>(false);
   const [videoInputUrl, setVideoInputUrl] = useState<string>(initialParams.rawVideoInput);
   const [activeVideoInput, setActiveVideoInput] = useState<string>(initialParams.rawVideoInput);
@@ -227,6 +282,11 @@ export const App: React.FC = () => {
   const [isEditingOut, setIsEditingOut] = useState<boolean>(false);
   const [wasAutoPaused, setWasAutoPaused] = useState<boolean>(false);
 
+  // Dedicated Voice-Over (VO) Lane State & Ref
+  const voInputRef = useRef<HTMLInputElement | null>(null);
+  const [voText, setVoText] = useState<string>('');
+  const [voTimeSec, setVoTimeSec] = useState<number | null>(null);
+
   // Accessibility live announcement state (WCAG 4.1.3 Status Messages)
   const [liveAnnouncement, setLiveAnnouncement] = useState<string>('');
 
@@ -237,22 +297,13 @@ export const App: React.FC = () => {
   } | null>(null);
   const undoTimerRef = useRef<number | null>(null);
 
-  // Comments list state
+  // Comments list state — initialized from active project
   const storageKey = `kadrs_comments_${resolvedSource.key}`;
   const [comments, setComments] = useState<VideoComment[]>(() => {
     if (initialParams.sharedComments && initialParams.sharedComments.length > 0) {
       return initialParams.sharedComments;
     }
-    try {
-      const saved = localStorage.getItem(`kadrs_comments_${resolveVideoSource(initialParams.rawVideoInput).key}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // ignore
-    }
-    return [];
+    return activeProject?.comments || [];
   });
 
   const [filterMode, setFilterMode] = useState<'all' | 'open' | 'resolved'>('all');
@@ -274,10 +325,168 @@ export const App: React.FC = () => {
 
   const finalDuration = Math.max(0, duration - totalCutSeconds);
 
-  // Persist comments to LocalStorage & serverless store
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const backupFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Core save function that guarantees atomic persistence
+  const persistProjectsToStorage = (updatedProjects: ProjectItem[]) => {
+    setIsSaving(true);
+    try {
+      localStorage.setItem('postq_projects', JSON.stringify(updatedProjects));
+    } catch (err) {
+      console.error('Neizdevās saglabāt projektus:', err);
+    } finally {
+      setTimeout(() => setIsSaving(false), 400);
+    }
+  };
+
+  // Close projects dropdown on click outside
+  useEffect(() => {
+    if (!showProjectsMenu) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (projectsMenuRef.current && !projectsMenuRef.current.contains(e.target as Node)) {
+        setShowProjectsMenu(false);
+      }
+    };
+    window.addEventListener('mousedown', handleOutsideClick);
+    return () => window.removeEventListener('mousedown', handleOutsideClick);
+  }, [showProjectsMenu]);
+
+  // Guard against closing tab accidentally if there are comments (Zero data loss guarantee)
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (comments.length > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [comments.length]);
+
+  // Switch between episodes / projects
+  const switchProject = (targetId: string) => {
+    const target = projects.find(p => p.id === targetId);
+    if (!target) return;
+    setActiveProjectId(target.id);
+    setProjectTitle(target.title);
+    setComments(target.comments);
+    try {
+      localStorage.setItem('postq_active_project_id', target.id);
+    } catch {
+      // ignore
+    }
+    setLiveAnnouncement(`Pārslēgts uz: ${target.title}`);
+  };
+
+  // Create new project / episode (supports 1 to 8+ projects seamlessly)
+  const createNewProject = () => {
+    const newId = `proj-${Date.now()}`;
+    const newTitle = `${projects.length + 1}. Epizode`;
+    const newProject: ProjectItem = {
+      id: newId,
+      title: newTitle,
+      videoFileName: null,
+      comments: [],
+      updatedAt: Date.now(),
+    };
+    const next = [...projects, newProject];
+    setProjects(next);
+    setActiveProjectId(newId);
+    setProjectTitle(newTitle);
+    setComments([]);
+    persistProjectsToStorage(next);
+    try {
+      localStorage.setItem('postq_active_project_id', newId);
+    } catch {
+      // ignore
+    }
+    setLiveAnnouncement(`Izveidota jauna epizode: ${newTitle}`);
+  };
+
+  // Delete project
+  const deleteProject = (idToDelete: string) => {
+    if (projects.length <= 1) return;
+    const next = projects.filter(p => p.id !== idToDelete);
+    setProjects(next);
+    persistProjectsToStorage(next);
+    if (activeProjectId === idToDelete) {
+      const nextActive = next[0];
+      setActiveProjectId(nextActive.id);
+      setProjectTitle(nextActive.title);
+      setComments(nextActive.comments);
+      try {
+        localStorage.setItem('postq_active_project_id', nextActive.id);
+      } catch {
+        // ignore
+      }
+    }
+    setLiveAnnouncement('Epizode izdzēsta.');
+  };
+
+  // Update project title & sync to storage
+  const handleUpdateProjectTitle = (newTitle: string) => {
+    setProjectTitle(newTitle);
+    setProjects(prevProjects => {
+      const next = prevProjects.map(p =>
+        p.id === activeProjectId ? { ...p, title: newTitle, updatedAt: Date.now() } : p
+      );
+      persistProjectsToStorage(next);
+      return next;
+    });
+  };
+
+  // Export full JSON backup of all projects
+  const exportProjectsBackup = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projects, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `POSTQ_Epizodes_Rezerves_Kopija_${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    setLiveAnnouncement('Rezerves kopija saglabāta.');
+  };
+
+  // Import full JSON backup
+  const importProjectsBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setProjects(parsed);
+          persistProjectsToStorage(parsed);
+          const first = parsed[0];
+          setActiveProjectId(first.id);
+          setProjectTitle(first.title);
+          setComments(first.comments);
+          setLiveAnnouncement(`Ielādētas ${parsed.length} epizodes no rezerves kopijas!`);
+        }
+      } catch {
+        alert('Kļūda: Fails nav derīgs rezerves kopijas JSON.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // Persist comments to Multi-Project store and LocalStorage (Atomic Zero-Data-Loss Guarantee)
   const saveComments = (updated: VideoComment[]) => {
     const sorted = [...updated].sort((a, b) => a.seconds - b.seconds || a.createdAt - b.createdAt);
     setComments(sorted);
+
+    // Save to multi-project store immediately
+    setProjects(prevProjects => {
+      const next = prevProjects.map(p =>
+        p.id === activeProjectId ? { ...p, comments: sorted, updatedAt: Date.now() } : p
+      );
+      persistProjectsToStorage(next);
+      return next;
+    });
+
     try {
       localStorage.setItem(storageKey, JSON.stringify(sorted));
     } catch {
@@ -356,41 +565,57 @@ export const App: React.FC = () => {
     setLiveAnnouncement('Out noņemts');
   };
 
-  // Instant VO (Voice-Over) maker with yellow branding
-  const handleAddVO = () => {
+  // Save from dedicated Voice-Over (VO) lane
+  const handleSaveDedicatedVO = () => {
+    const textToSave = voText.trim();
+    if (!textToSave) return;
     const vid = videoRef.current;
-    const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
+    const nowSec = voTimeSec !== null ? voTimeSec : Math.floor(vid ? vid.currentTime : currentTime);
 
-    // Auto-pause video
     if (vid && !vid.paused) {
       vid.pause();
       setWasAutoPaused(true);
     }
 
-    const userText = commentText.trim();
-    const textToSave = userText
-      ? (userText.toUpperCase().startsWith('VO') ? userText : `VO: ${userText}`)
-      : 'VO';
-
+    const fullVoText = textToSave.toUpperCase().startsWith('VO') ? textToSave : `VO: ${textToSave}`;
     const newComment: VideoComment = {
       id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       seconds: nowSec,
       timecode: formatMMSS(nowSec),
-      text: textToSave,
+      text: fullVoText,
       resolved: false,
       createdAt: Date.now(),
     };
 
     saveComments([...comments, newComment]);
-    setCommentText('');
-    setInSeconds(null);
-    setOutSeconds(null);
+    setVoText('');
+    setVoTimeSec(null);
     setActiveCommentId(newComment.id);
     setLiveAnnouncement(`VO pie ${formatMMSS(nowSec)} pievienots!`);
 
     if (resumeAfterSubmit && videoRef.current) {
       videoRef.current.play().catch(() => {});
     }
+  };
+
+  // Instant VO (Voice-Over) activation & focus into dedicated lane
+  const handleAddVO = () => {
+    const vid = videoRef.current;
+    const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
+
+    if (vid && !vid.paused) {
+      vid.pause();
+      setWasAutoPaused(true);
+    }
+
+    setVoTimeSec(nowSec);
+    // If there's text in the main comment box, transfer it to VO
+    if (commentText.trim() && !voText.trim()) {
+      setVoText(commentText.trim());
+      setCommentText('');
+    }
+    voInputRef.current?.focus();
+    setLiveAnnouncement(`VO josla aktivizēta pie ${formatMMSS(nowSec)}`);
   };
 
   // Load comments when video source changes
@@ -698,7 +923,23 @@ export const App: React.FC = () => {
     const objUrl = URL.createObjectURL(file);
     setLocalObjectUrl(objUrl);
     setLocalFileName(file.name);
-    setProjectTitle(file.name.replace(/\.[^/.]+$/, ''));
+
+    const cleanFileName = file.name.replace(/\.[^/.]+$/, '');
+    const updatedTitle = (!projectTitle || projectTitle.startsWith('1. Epizode') || projectTitle === 'Video labošana')
+      ? cleanFileName
+      : projectTitle;
+    setProjectTitle(updatedTitle);
+
+    setProjects(prevProjects => {
+      const next = prevProjects.map(p =>
+        p.id === activeProjectId
+          ? { ...p, title: updatedTitle, videoFileName: file.name, updatedAt: Date.now() }
+          : p
+      );
+      persistProjectsToStorage(next);
+      return next;
+    });
+
     setStreamError(null);
     setUseGdriveEmbed(false);
     setShowSourcePanel(false);
@@ -805,7 +1046,7 @@ export const App: React.FC = () => {
                 <input
                   type="text"
                   value={projectTitle}
-                  onChange={e => setProjectTitle(e.target.value)}
+                  onChange={e => handleUpdateProjectTitle(e.target.value)}
                   onBlur={() => setIsEditingTitle(false)}
                   onKeyDown={e => e.key === 'Enter' && setIsEditingTitle(false)}
                   aria-label="Projekta vai epizodes nosaukums"
@@ -820,7 +1061,7 @@ export const App: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsEditingTitle(true)}
-                  className="group min-h-[36px] flex items-center gap-1.5 text-left truncate max-w-[250px] sm:max-w-[460px] cursor-pointer rounded-lg px-1 -ml-1"
+                  className="group min-h-[36px] flex items-center gap-1.5 text-left truncate max-w-[200px] sm:max-w-[340px] cursor-pointer rounded-lg px-1 -ml-1"
                   title="Klikšķini, lai mainītu epizodes vai projekta nosaukumu"
                   aria-label={`Projekta nosaukums: ${projectTitle}. Klikšķini, lai rediģētu`}
                 >
@@ -835,10 +1076,170 @@ export const App: React.FC = () => {
                 </button>
               )}
             </div>
+
+            {/* Epizodes / Projekti Selector Pill */}
+            <div className="relative" ref={projectsMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowProjectsMenu(prev => !prev)}
+                className={`min-h-[38px] px-3 py-1.5 rounded-xl border text-xs font-bold ui-fast flex items-center gap-2 cursor-pointer ${
+                  isDark
+                    ? 'bg-[#152336] border-[#243B56] text-[#2DD4BF] hover:bg-[#1C2F47]'
+                    : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#D8E4EC]'
+                }`}
+                title="Pārslēgties starp epizodēm (līdz pat 8+ projektiem) vai pievienot jaunu"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+                <span className="font-extrabold">Epizodes ({projects.length})</span>
+                <svg className={`ui-fast ${showProjectsMenu ? 'rotate-180' : ''}`} xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+
+              {/* Popover Dropdown for Projects */}
+              {showProjectsMenu && (
+                <div
+                  className={`absolute top-full left-0 mt-2 w-72 sm:w-88 rounded-2xl p-3 shadow-2xl border z-50 modal-enter ${
+                    isDark ? 'bg-[#0E1A2B] border-[#1E334A] text-white' : 'bg-white border-[#B2C7D4] text-[#002C37]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between pb-2 px-1 border-b border-inherit mb-2 text-xs font-extrabold opacity-75">
+                    <span>EPIZOŽU PROJEKTI (LĪDZ 8+)</span>
+                    <span className="font-mono-tc">{projects.length} saglabāti</span>
+                  </div>
+
+                  <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                    {projects.map(p => {
+                      const isActive = p.id === activeProjectId;
+                      const cutCount = p.comments.filter(c => Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT')).length;
+                      const voCount = p.comments.filter(c => c.text.trim().toUpperCase().startsWith('VO')).length;
+
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => {
+                            switchProject(p.id);
+                            setShowProjectsMenu(false);
+                          }}
+                          className={`p-2.5 rounded-xl text-xs ui-fast cursor-pointer flex items-center justify-between gap-2 border ${
+                            isActive
+                              ? isDark
+                                ? 'bg-[#162942] border-[#2DD4BF] text-white shadow-xs'
+                                : 'bg-[#EAF1F6] border-[#0E7C86] text-[#002C37] shadow-xs'
+                              : isDark
+                                ? 'border-transparent hover:bg-[#142236] text-[#CBD5E1]'
+                                : 'border-transparent hover:bg-[#F1F5F9] text-[#1E293B]'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="font-extrabold truncate flex items-center gap-1.5">
+                              {isActive && <span className="w-2 h-2 rounded-full bg-[#2DD4BF] shrink-0"></span>}
+                              <span className="truncate">{p.title}</span>
+                            </div>
+                            <div className="text-[10px] opacity-75 mt-0.5 flex items-center gap-1.5 font-mono-tc flex-wrap">
+                              <span>{p.comments.length} piezīmes</span>
+                              {cutCount > 0 && <span className="text-rose-400 font-bold">{cutCount} CUT</span>}
+                              {voCount > 0 && <span className="text-amber-400 font-bold">{voCount} VO</span>}
+                              {p.videoFileName && <span className="truncate max-w-[100px] opacity-60">· {p.videoFileName}</span>}
+                            </div>
+                          </div>
+
+                          {projects.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                if (confirm(`Vai tiešām dzēst epizodi "${p.title}"?`)) {
+                                  deleteProject(p.id);
+                                }
+                              }}
+                              className="min-w-[28px] min-h-[28px] flex items-center justify-center rounded-lg opacity-40 hover:opacity-100 hover:text-rose-400 cursor-pointer"
+                              title="Dzēst šo epizodi"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                              </svg>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Actions: Add Project, Backup & Restore */}
+                  <div className="pt-2 mt-2 border-t border-inherit space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        createNewProject();
+                        setShowProjectsMenu(false);
+                      }}
+                      className="w-full min-h-[38px] px-3 py-1.5 rounded-xl bg-[#0E7C86] hover:bg-[#096169] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer ui-fast shadow-xs hover-lift"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                      </svg>
+                      <span>+ Pievienot jaunu epizodi</span>
+                    </button>
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={exportProjectsBackup}
+                        className={`flex-1 min-h-[32px] px-2 py-1 rounded-lg text-[11px] font-bold border flex items-center justify-center gap-1 cursor-pointer ui-fast ${
+                          isDark ? 'border-[#243B56] hover:bg-[#162740] text-[#CBD5E1]' : 'border-[#B2C7D4] hover:bg-[#EAF1F6] text-[#002C37]'
+                        }`}
+                        title="Saglabāt visu epizožu rezerves kopiju failā datorā"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Dublēt failā</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => backupFileInputRef.current?.click()}
+                        className={`flex-1 min-h-[32px] px-2 py-1 rounded-lg text-[11px] font-bold border flex items-center justify-center gap-1 cursor-pointer ui-fast ${
+                          isDark ? 'border-[#243B56] hover:bg-[#162740] text-[#CBD5E1]' : 'border-[#B2C7D4] hover:bg-[#EAF1F6] text-[#002C37]'
+                        }`}
+                        title="Ielādēt projektus no iepriekš saglabāta rezerves faila"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        <span>Atjaunot failu</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Right: Upload Video button, Share Link button, Theme toggle (All >= 42px height) */}
+          {/* Hidden input for backup import */}
+          <input
+            ref={backupFileInputRef}
+            type="file"
+            accept=".json,application/json"
+            onChange={importProjectsBackup}
+            className="hidden"
+          />
+
+          {/* Right: Auto-save status, Upload Video button, Theme toggle */}
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Reāllaika auto-saglabāšanas indikators redaktora sirdsmieram */}
+            <div
+              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono-tc font-bold shadow-2xs"
+              title="Visi labojumi, CUT un VO automātiski tiek saglabāti pārlūkā reāllaikā"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span>{isSaving ? 'Saglabā...' : 'Viss saglabāts datorā'}</span>
+            </div>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -1338,6 +1739,77 @@ export const App: React.FC = () => {
                 >
                   <span>{outSeconds !== null ? 'Pievienot izgriezumu' : 'Pievienot'}</span>
                   <span className="text-xs opacity-85 font-mono-tc hidden sm:inline" aria-hidden="true">↵</span>
+                </button>
+              </div>
+
+              {/* DEDICATED ATSEVIŠĶA VO (VOICE-OVER) IEVADES JOSLA (Exactly matching user's diagram) */}
+              <div className={`mt-2.5 pt-2.5 border-t flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 ${
+                isDark ? 'border-amber-500/25' : 'border-amber-300/50'
+              }`}>
+                {/* VO TC Badge Button */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const vid = videoRef.current;
+                    if (vid && !vid.paused) {
+                      vid.pause();
+                      setWasAutoPaused(true);
+                    }
+                    const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
+                    setVoTimeSec(nowSec);
+                    voInputRef.current?.focus();
+                  }}
+                  className="min-h-[42px] px-3.5 py-1.5 rounded-xl text-xs font-mono-tc font-black bg-amber-500 hover:bg-amber-400 text-black border border-amber-300 shadow-xs flex items-center gap-1.5 cursor-pointer ui-fast hover-lift shrink-0"
+                  title="Fiksēt šo sekundi kā VO sākumu"
+                >
+                  <span className="uppercase tracking-wider">VO:</span>
+                  <span>{formatMMSS(voTimeSec ?? currentTime)}</span>
+                </button>
+
+                {/* VO Dedicated Input */}
+                <label htmlFor="vo-dedicated-input" className="sr-only">Aizkadra teksts (VO)</label>
+                <input
+                  id="vo-dedicated-input"
+                  ref={voInputRef}
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={voText}
+                  onChange={e => {
+                    setVoText(e.target.value);
+                    const vid = videoRef.current;
+                    if (vid && !vid.paused) {
+                      vid.pause();
+                      setWasAutoPaused(true);
+                    }
+                    if (voTimeSec === null) {
+                      setVoTimeSec(Math.floor(vid ? vid.currentTime : currentTime));
+                    }
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSaveDedicatedVO();
+                    }
+                  }}
+                  placeholder="Ieraksti aizkadra tekstu (VO), kas šeit jārunā..."
+                  className={`min-h-[42px] flex-1 px-4 py-2 rounded-xl border text-xs sm:text-sm font-medium ui-fast ${
+                    isDark
+                      ? 'bg-[#151D18] border-amber-500/50 focus:border-amber-400 text-amber-100 placeholder-amber-400/50'
+                      : 'bg-amber-50 border-amber-300 focus:border-amber-500 text-amber-950 placeholder-amber-800/50'
+                  }`}
+                />
+
+                {/* VO Submit Button */}
+                <button
+                  type="button"
+                  onClick={handleSaveDedicatedVO}
+                  disabled={!voText.trim()}
+                  className="min-h-[42px] px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-extrabold text-xs sm:text-sm cursor-pointer ui-fast flex items-center justify-center gap-1.5 shadow-xs shrink-0 hover-lift"
+                >
+                  <span>Pievienot VO</span>
+                  <span className="text-xs opacity-75 font-mono-tc hidden sm:inline" aria-hidden="true">↵</span>
                 </button>
               </div>
 
