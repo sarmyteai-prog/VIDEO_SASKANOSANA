@@ -915,6 +915,9 @@ export const App: React.FC = () => {
                       controls
                       playsInline
                       preload="auto"
+                      controlsList="nodownload nopictureinpicture"
+                      disablePictureInPicture
+                      onContextMenu={e => e.preventDefault()}
                       onTimeUpdate={() => {
                         if (videoRef.current) {
                           setCurrentTime(videoRef.current.currentTime);
