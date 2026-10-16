@@ -1005,6 +1005,7 @@ export const App: React.FC = () => {
                       }
                     }}
                   />
+                  </>
                 )}
 
                 {streamError && !useGdriveEmbed && hasLoadedVideo && (
