@@ -671,9 +671,9 @@ export const App: React.FC = () => {
     const nextSec = Math.max(0, Math.min(duration || 99999, videoRef.current.currentTime + delta));
     videoRef.current.currentTime = nextSec;
     setCurrentTime(nextSec);
-    if (lockedSeconds !== null) {
-      setLockedSeconds(Math.floor(nextSec));
-      setManualTcInput(formatMMSS(nextSec));
+    if (inSeconds !== null) {
+      setInSeconds(Math.floor(nextSec));
+      setManualInInput(formatMMSS(nextSec));
     }
   };
 
@@ -684,7 +684,7 @@ export const App: React.FC = () => {
   }, [comments, filterMode]);
 
   const resolvedCount = useMemo(() => comments.filter(c => c.resolved).length, [comments]);
-  const displayTimecode = lockedSeconds !== null ? formatMMSS(lockedSeconds) : formatMMSS(currentTime);
+  const displayTimecode = inSeconds !== null ? formatMMSS(inSeconds) : formatMMSS(currentTime);
   const progressRatio = duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0;
   const hasLoadedVideo = resolvedSource.type !== 'empty';
 
@@ -1157,12 +1157,11 @@ export const App: React.FC = () => {
                         return null;
                       })}
 
-                      {/* Live Cut Preview while isCutMode is active */}
-                      {isCutMode && cutStartSec !== null && duration > 0 && (
+                      {/* Live Cut Preview while outSeconds is active */}
+                      {inSeconds !== null && outSeconds !== null && duration > 0 && (
                         (() => {
-                          const end = cutEndSec !== null ? cutEndSec : Math.floor(currentTime);
-                          const s = Math.min(cutStartSec, end);
-                          const e = Math.max(cutStartSec, end);
+                          const s = Math.min(inSeconds, outSeconds);
+                          const e = Math.max(inSeconds, outSeconds);
                           const startPct = Math.max(0, (s / duration) * 100);
                           const widthPct = Math.min(100 - startPct, ((e - s) / duration) * 100);
                           return (
