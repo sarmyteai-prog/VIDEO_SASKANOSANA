@@ -200,13 +200,6 @@ export const App: React.FC = () => {
   const [duration, setDuration] = useState<number>(0);
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [resumeAfterSubmit, setResumeAfterSubmit] = useState<boolean>(false);
-  const [deinterlace, setDeinterlace] = useState<boolean>(() => {
-    return localStorage.getItem('kadrs_deinterlace') === 'true';
-  });
-
-  useEffect(() => {
-    localStorage.setItem('kadrs_deinterlace', deinterlace ? 'true' : 'false');
-  }, [deinterlace]);
 
   // Comment input & auto-locked timecode state
   const [commentText, setCommentText] = useState<string>('');
@@ -966,21 +959,10 @@ export const App: React.FC = () => {
                     title={projectTitle}
                   />
                 ) : (
-                  <>
-                    <svg className="hidden" aria-hidden="true">
-                      <filter id="tv-deinterlace" x="0%" y="0%" width="100%" height="100%">
-                        <feConvolveMatrix
-                          order="1 3"
-                          kernelMatrix="0.25 0.5 0.25"
-                          preserveAlpha="true"
-                        />
-                      </filter>
-                    </svg>
-                    <video
-                      ref={videoRef}
-                      src={resolvedSource.streamUrl}
-                      style={{ filter: deinterlace ? 'url(#tv-deinterlace)' : 'none' }}
-                      className="w-full h-full object-contain bg-black"
+                  <video
+                    ref={videoRef}
+                    src={resolvedSource.streamUrl}
+                    className="w-full h-full object-contain bg-black"
                     controls
                     playsInline
                     preload="metadata"
@@ -1009,7 +991,6 @@ export const App: React.FC = () => {
                       }
                     }}
                   />
-                  </>
                 )}
 
                 {streamError && !useGdriveEmbed && hasLoadedVideo && (
@@ -1133,25 +1114,6 @@ export const App: React.FC = () => {
                         title="Mainīt atskaņošanas ātrumu (1x / 1.25x / 1.5x / 2x)"
                       >
                         {playbackRate}x
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeinterlace(prev => !prev);
-                          setLiveAnnouncement(deinterlace ? 'Deinterlace izslēgts' : 'Deinterlace ieslēgts (strīpiņas noņemtas)');
-                        }}
-                        aria-pressed={deinterlace}
-                        className={`min-h-[38px] px-3 py-1.5 rounded-lg font-bold text-xs cursor-pointer ui-fast border flex items-center gap-1.5 ${
-                          deinterlace
-                            ? 'bg-[#10B981] border-[#10B981] text-white shadow-2xs'
-                            : isDark
-                              ? 'bg-[#162740] border-[#243B56] text-[#CBD5E1] hover:text-white'
-                              : 'bg-[#DFE8EE] border-[#B2C7D4] text-[#002C37]'
-                        }`}
-                        title="Pārslēdz reāllaika puskadru sapludināšanu (noņem 50i TV horizontālās strīpiņas un ņirboņu)"
-                      >
-                        <span className={`w-2 h-2 rounded-full ${deinterlace ? 'bg-white' : 'bg-amber-400'}`} aria-hidden="true" />
-                        <span>{deinterlace ? '✓ Strīpiņas noņemtas' : 'Noņemt strīpiņas (50i)'}</span>
                       </button>
                     </div>
 
