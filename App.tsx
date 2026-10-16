@@ -895,7 +895,16 @@ export const App: React.FC = () => {
         ? `Sākotnējais ilgums: ${formatMMSS(duration)} | Izgriezts: -${formatMMSS(totalCutSeconds)} (-${totalCutSeconds}s) | Gala raidījums: ${formatMMSS(finalDuration)}`
         : '',
       `──────────────────────────────`,
-      ...listToCopy.map(c => `${c.resolved ? '[OK] ' : ''}${c.timecode} — ${c.text}`),
+      ...listToCopy.map(c => {
+        const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+        const isVO = !isCut && c.text.trim().toUpperCase().startsWith('VO');
+        const prefix = c.resolved ? '[OK] ' : '';
+        if (isVO) {
+          const cleanText = c.text.trim().replace(/^VO:?\s*/i, '');
+          return `${prefix}${c.timecode} — VO: ${cleanText}`;
+        }
+        return `${prefix}${c.timecode} — ${c.text}`;
+      }),
     ].filter(Boolean);
 
     navigator.clipboard.writeText(lines.join('\n'));
@@ -1736,7 +1745,7 @@ export const App: React.FC = () => {
               <div className={`mt-2.5 pt-2.5 border-t flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 ${
                 isDark ? 'border-amber-500/25' : 'border-amber-300/50'
               }`}>
-                {/* VO TC Badge Button */}
+                {/* VO Button */}
                 <button
                   type="button"
                   onClick={() => {
@@ -1749,11 +1758,10 @@ export const App: React.FC = () => {
                     setVoTimeSec(nowSec);
                     voInputRef.current?.focus();
                   }}
-                  className="min-h-[42px] px-3.5 py-1.5 rounded-xl text-xs font-mono-tc font-black bg-amber-500 hover:bg-amber-400 text-black border border-amber-300 shadow-xs flex items-center gap-1.5 cursor-pointer ui-fast hover-lift shrink-0"
-                  title="Fiksēt šo sekundi kā VO sākumu"
+                  className="min-h-[42px] px-4 py-1.5 rounded-xl font-mono-tc font-black bg-amber-500 hover:bg-amber-400 text-black border border-amber-300 shadow-xs flex items-center justify-center cursor-pointer ui-fast hover-lift shrink-0"
+                  title="Fiksēt šo sekundi kā Voice-Over (VO)"
                 >
-                  <span className="uppercase tracking-wider">VO:</span>
-                  <span>{formatMMSS(voTimeSec ?? currentTime)}</span>
+                  <span className="uppercase tracking-wider font-black text-sm">VO</span>
                 </button>
 
                 {/* VO Dedicated Input */}
@@ -2149,12 +2157,7 @@ export const App: React.FC = () => {
                                 <span>{c.text.trim().replace(/^CUT\s*/i, '')}</span>
                               </>
                             ) : isVOComment ? (
-                              <>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-500 text-black font-mono-tc text-[10px] font-black mr-1.5 shadow-2xs tracking-wide">
-                                  VO
-                                </span>
-                                <span>{c.text.trim().replace(/^VO:?\s*/i, '') || 'Voice-Over (aizkadra teksts)'}</span>
-                              </>
+                              <span>{c.text.trim().replace(/^VO:?\s*/i, '') || 'Voice-Over'}</span>
                             ) : (
                               c.text
                             )}
