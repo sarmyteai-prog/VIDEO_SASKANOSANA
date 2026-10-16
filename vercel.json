@@ -1,0 +1,14 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/((?!api/|assets/|favicon|og-|thumbnail|robots\\.txt|sitemap\\.xml|google[a-z0-9]+\\.html|.*\\.[a-zA-Z0-9]+).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
