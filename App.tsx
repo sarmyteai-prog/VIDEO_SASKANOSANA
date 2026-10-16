@@ -855,34 +855,6 @@ export const App: React.FC = () => {
                 ? 'bg-[#070C14] border-[#1E334A]'
                 : 'bg-[#0F1B29] border-[#B2C7D4]'
             }`}>
-              {/* Top Mini Status inside Player if Google Drive */}
-              {resolvedSource.type === 'gdrive' && (
-                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-[#0F1A2A] border-b border-[#1E334A] text-xs text-[#E8F0F6]">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${useGdriveEmbed ? 'bg-[#10B981]' : 'bg-amber-400 animate-pulse'}`} aria-hidden="true"></span>
-                    <span className="font-bold">
-                      {useGdriveEmbed
-                        ? 'Google Drive Iebūvētais Pleijeris (Ieteicams lieliem 5 GB failiem)'
-                        : 'Tiešais MP4 pleijeris (Lieliem failiem var ieķerties)'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUseGdriveEmbed(prev => !prev);
-                      setStreamError(null);
-                    }}
-                    className={`min-h-[36px] px-3.5 py-1.5 rounded-xl font-extrabold text-xs border cursor-pointer ui-fast flex items-center gap-1.5 ${
-                      useGdriveEmbed
-                        ? 'bg-[#10B981] border-[#10B981] text-white'
-                        : 'bg-amber-500 hover:bg-amber-600 border-amber-400 text-black shadow-sm'
-                    }`}
-                  >
-                    <span>{useGdriveEmbed ? '✓ Ieslēgts Drive Pleijeris' : '⚡ Ja 5 GB fails karas → Ieslēgt Drive Pleijeri'}</span>
-                  </button>
-                </div>
-              )}
-
               {/* Video Area (16:9) — Shows Intuitive Video Onboarding Dropzone when no video is loaded yet! */}
               <div
                 onDragOver={e => {
