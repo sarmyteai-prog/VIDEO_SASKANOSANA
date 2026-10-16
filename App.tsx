@@ -249,6 +249,7 @@ export const App: React.FC = () => {
 
   const [useGdriveEmbed, setUseGdriveEmbed] = useState<boolean>(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
 
   const resolvedSource = useMemo(() => {
     if (localObjectUrl) {
@@ -657,6 +658,13 @@ export const App: React.FC = () => {
   // Global keyboard shortcuts when not typing in an input (Nielsen Heuristic #7: Efficiency of use)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (showHelpModal) {
+          setShowHelpModal(false);
+          return;
+        }
+      }
+
       const target = e.target as HTMLElement | null;
       const isInputFocused =
         target &&
@@ -884,18 +892,43 @@ export const App: React.FC = () => {
     setLiveAnnouncement('Izlabotie komentāri notīrīti.');
   };
 
-  // Copy comments list as clean plain text
-  const copyCommentsAsText = () => {
-    const listToCopy = filteredComments.length > 0 ? filteredComments : comments;
-    if (listToCopy.length === 0) return;
+  const [copiedMode, setCopiedMode] = useState<'all' | 'vo' | 'edits' | null>(null);
+
+  // Copy comments list as clean plain text with mode support (all, only VO, only edits)
+  const copyCommentsMode = (mode: 'all' | 'vo' | 'edits') => {
+    const listSource = filteredComments.length > 0 ? filteredComments : comments;
+    if (listSource.length === 0) return;
+
+    let targetComments = listSource;
+    let subtitle = '';
+
+    if (mode === 'vo') {
+      targetComments = listSource.filter(c => {
+        const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+        return !isCut && c.text.trim().toUpperCase().startsWith('VO');
+      });
+      subtitle = `AIZKADRA BALSS (VO) — ${targetComments.length} fragmenti`;
+    } else if (mode === 'edits') {
+      targetComments = listSource.filter(c => {
+        const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+        return isCut || !c.text.trim().toUpperCase().startsWith('VO');
+      });
+      subtitle = `MONTĀŽAS LABOJUMI UN IZGRIEZUMI`;
+    }
+
+    if (targetComments.length === 0) {
+      alert(mode === 'vo' ? 'Šajā epizodē nav VO (aizkadra balss) ierakstu.' : 'Šajā epizodē nav montāžas labojumu.');
+      return;
+    }
 
     const lines = [
       projectTitle,
-      duration > 0 && totalCutSeconds > 0
+      subtitle,
+      mode !== 'vo' && duration > 0 && totalCutSeconds > 0
         ? `Sākotnējais ilgums: ${formatMMSS(duration)} | Izgriezts: -${formatMMSS(totalCutSeconds)} (-${totalCutSeconds}s) | Gala raidījums: ${formatMMSS(finalDuration)}`
         : '',
       `──────────────────────────────`,
-      ...listToCopy.map(c => {
+      ...targetComments.map(c => {
         const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
         const isVO = !isCut && c.text.trim().toUpperCase().startsWith('VO');
         const prefix = c.resolved ? '[OK] ' : '';
@@ -908,9 +941,23 @@ export const App: React.FC = () => {
     ].filter(Boolean);
 
     navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedMode(mode);
     setCopiedList(true);
-    setLiveAnnouncement('Komentāru saraksts nokopēts starpliktuvē.');
+    setTimeout(() => {
+      setCopiedMode(null);
+      setCopiedList(false);
+    }, 2500);
+
+    const announcement =
+      mode === 'vo'
+        ? 'Tikai VO teksti nokopēti starpliktuvē.'
+        : mode === 'edits'
+          ? 'Tikai montāžas labojumi nokopēti starpliktuvē.'
+          : 'Pilns saraksts nokopēts starpliktuvē.';
+    setLiveAnnouncement(announcement);
   };
+
+  const copyCommentsAsText = () => copyCommentsMode('all');
 
 
   const handleApplyVideoSource = (e: React.FormEvent) => {
@@ -1261,6 +1308,24 @@ export const App: React.FC = () => {
                 <line x1="12" y1="3" x2="12" y2="15"/>
               </svg>
               <span>Augšupielādēt video (.mp4)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowHelpModal(true)}
+              className={`min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1.5 shadow-xs ${
+                isDark
+                  ? 'bg-[#152336] border-[#243B56] text-[#CBD5E1] hover:text-white hover:bg-[#1C2F47]'
+                  : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#D8E4EC]'
+              }`}
+              title="Kā lietot šo rīku — ātrā rokasgrāmata un karstie taustiņi"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span>Kā lietot</span>
             </button>
 
             <button
@@ -1858,37 +1923,56 @@ export const App: React.FC = () => {
                   </span>
                 </div>
 
-                {/* Copy List as Text Button (>= 40px touch target) */}
-                <button
-                  type="button"
-                  onClick={copyCommentsAsText}
-                  disabled={comments.length === 0}
-                  className={`min-h-[40px] px-3.5 py-1.5 rounded-xl text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1.5 disabled:opacity-40 ${
-                    copiedList
-                      ? 'bg-[#10B981] border-[#10B981] text-white'
-                      : isDark
-                        ? 'bg-[#162740] border-[#2DD4BF]/40 text-[#2DD4BF] hover:bg-[#1E3454]'
-                        : 'bg-[#EAF1F6] border-[#0E7C86]/40 text-[#0B626B] hover:bg-[#E2ECF2]'
-                  }`}
-                  title="Nokopēt komentāru sarakstu kā tīru tekstu ar laika kodiem"
-                >
-                  {copiedList ? (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <polyline points="20 6 9 17 4 12"/>
-                      </svg>
-                      <span>Nokopēts!</span>
-                    </>
-                  ) : (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                      </svg>
-                      <span>Kopēt sarakstu</span>
-                    </>
-                  )}
-                </button>
+                {/* 3 Dedicated Copy Buttons: Visu, Tikai VO, Tikai labojumus */}
+                <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+                  <button
+                    type="button"
+                    onClick={() => copyCommentsMode('all')}
+                    disabled={comments.length === 0}
+                    className={`min-h-[34px] px-2.5 py-1 rounded-xl text-[11px] sm:text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1 disabled:opacity-40 ${
+                      copiedMode === 'all'
+                        ? 'bg-[#10B981] border-[#10B981] text-white'
+                        : isDark
+                          ? 'bg-[#162740] border-[#2DD4BF]/40 text-[#2DD4BF] hover:bg-[#1E3454]'
+                          : 'bg-[#EAF1F6] border-[#0E7C86]/40 text-[#0B626B] hover:bg-[#E2ECF2]'
+                    }`}
+                    title="Nokopēt visu pilno sarakstu (hronometrāža, izgriezumi, VO un labojumi)"
+                  >
+                    <span>{copiedMode === 'all' ? 'Nokopēts!' : 'Kopēt visu'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => copyCommentsMode('vo')}
+                    disabled={comments.length === 0}
+                    className={`min-h-[34px] px-2.5 py-1 rounded-xl text-[11px] sm:text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1 disabled:opacity-40 ${
+                      copiedMode === 'vo'
+                        ? 'bg-amber-500 border-amber-500 text-black'
+                        : isDark
+                          ? 'bg-[#1F2317] border-amber-400/50 text-amber-300 hover:bg-[#282F1E]'
+                          : 'bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100'
+                    }`}
+                    title="Nokopēt TIKAI VO aizkadra tekstus ar laika kodiem (diktoram ierunāšanai)"
+                  >
+                    <span>{copiedMode === 'vo' ? 'VO nokopēts!' : 'Tikai VO'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => copyCommentsMode('edits')}
+                    disabled={comments.length === 0}
+                    className={`min-h-[34px] px-2.5 py-1 rounded-xl text-[11px] sm:text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1 disabled:opacity-40 ${
+                      copiedMode === 'edits'
+                        ? 'bg-rose-600 border-rose-600 text-white'
+                        : isDark
+                          ? 'bg-[#162740] border-[#243B56] text-[#CBD5E1] hover:text-white hover:bg-[#1E3454]'
+                          : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#E2ECF2]'
+                    }`}
+                    title="Nokopēt TIKAI montāžas labojumus un CUT izgriezumus (montāžistam)"
+                  >
+                    <span>{copiedMode === 'edits' ? 'Labojumi nokopēti!' : 'Tikai labojumus'}</span>
+                  </button>
+                </div>
               </div>
 
               {/* TV Rough Cut Statistics: Total Cut Duration & Final Broadcast Runtime */}
@@ -2205,6 +2289,174 @@ export const App: React.FC = () => {
           </aside>
 
         </div>
+
+        {/* Help & Workflow Guide Modal (TV Editor Quick Guide) */}
+        {showHelpModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="help-modal-title"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowHelpModal(false);
+            }}
+          >
+            <div
+              className={`w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl p-6 sm:p-7 ui-fast ${
+                isDark
+                  ? 'bg-[#0F172A] border-[#1E293B] text-slate-100'
+                  : 'bg-white border-slate-200 text-slate-900'
+              }`}
+            >
+              <div className="flex items-center justify-between pb-4 mb-5 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400 flex items-center justify-center font-black text-sm">
+                    TV
+                  </div>
+                  <div>
+                    <h2 id="help-modal-title" className="text-base sm:text-lg font-bold tracking-tight">
+                      Kā lietot šo rīku
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Raidījumu priekšskatījuma, VO aizkadra tekstu un melnās montāžas sistēma
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowHelpModal(false)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 cursor-pointer"
+                  aria-label="Aizvērt palīdzības logu"
+                  title="Aizvērt (Esc)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+
+              {/* 4 Darba soļi */}
+              <div className="space-y-4 mb-6">
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+                  <div className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-md bg-teal-500 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                      1
+                    </span>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider mb-1 text-slate-700 dark:text-slate-300">
+                        Pievieno video failu
+                      </h3>
+                      <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                        Ievelc video ekrānā vai nospied &ldquo;Augšupielādēt video (.mp4)&rdquo;. Video fails tiek atskaņots tieši no tava datora atmiņas — nav jāgaida servera augšupielāde, un dati paliek 100% privāti.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+                  <div className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-md bg-teal-500 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                      2
+                    </span>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider mb-1 text-slate-700 dark:text-slate-300">
+                        Atzīmē labojumus un aizkadra balsi (VO)
+                      </h3>
+                      <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                        <strong className="text-slate-800 dark:text-slate-200">Izgriezumi (CUT):</strong> Spied taustiņu <strong>I</strong> sākumā un <strong>O</strong> beigās (vai ievadi sekundes), lai atzīmētu izgriežamo fragmentu. Rīks automātiski aprēķina gala raidījuma garumu.
+                      </p>
+                      <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400 mt-1.5">
+                        <strong className="text-slate-800 dark:text-slate-200">Aizkadra balss (VO):</strong> Apakšējā joslā ieraksti diktora tekstu un spied <strong>VO</strong>. Teksts tiks piesaistīts pašreizējam laika kodam dzeltenā krāsā.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+                  <div className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-md bg-teal-500 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                      3
+                    </span>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider mb-1 text-slate-700 dark:text-slate-300">
+                        Kopē ar 1 klikšķi montāžai vai diktoram
+                      </h3>
+                      <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                        Komentāru saraksta augšā ir 3 kopēšanas pogas:
+                      </p>
+                      <ul className="text-xs space-y-1 mt-1 text-slate-600 dark:text-slate-400 list-disc list-inside">
+                        <li><strong>Kopēt visu</strong> — pilna tāme ar sākotnējo garumu, izgriezumiem, VO un piezīmēm.</li>
+                        <li><strong>Tikai VO</strong> — tīrs aizkadra tekstu saraksts diktora ierunāšanai studijā.</li>
+                        <li><strong>Tikai labojumus</strong> — tikai montāžas izgriezumi un piezīmes video montāžistam.</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800">
+                  <div className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-md bg-teal-500 text-white font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
+                      4
+                    </span>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider mb-1 text-slate-700 dark:text-slate-300">
+                        Daudzepizožu darbs un automātiska saglabāšana
+                      </h3>
+                      <p className="text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+                        Augšējā kreisajā pusē vari pievienot un pārslēgties starp līdz pat 8+ sērijām. Katrs vārds un laika kods tiek nekavējoties saglabāts pārlūka atmiņā — nejauša loga aizvēršana neizdzēš paveikto.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Karstie taustiņi */}
+              <div className="mb-6">
+                <h3 className="text-xs font-bold uppercase tracking-wider mb-2.5 text-slate-500 dark:text-slate-400">
+                  Karstie taustiņi
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                  <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">Pauze / Atskaņot</span>
+                    <kbd className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono font-bold">Space</kbd>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">IN punkts</span>
+                    <kbd className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono font-bold">I</kbd>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">OUT punkts</span>
+                    <kbd className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono font-bold">O</kbd>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">+/- 5 sekundes</span>
+                    <kbd className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono font-bold">← / →</kbd>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">Saglabāt piezīmi</span>
+                    <kbd className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono font-bold">Ctrl+Enter</kbd>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-slate-500 dark:text-slate-400">Aizvērt logu</span>
+                    <kbd className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono font-bold">Esc</kbd>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal footer */}
+              <div className="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowHelpModal(false)}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-[#0E7C86] hover:bg-[#096169] text-white ui-fast cursor-pointer"
+                >
+                  Sapratu, aizvērt
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Standard Footer with EU Directives & Sarmyte Credit */}
         <FooterBar isDark={isDark} />
