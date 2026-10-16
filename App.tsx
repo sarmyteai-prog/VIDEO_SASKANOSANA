@@ -43,6 +43,22 @@ export function parseMMSS(tc: string): number | null {
   return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
 }
 
+// Aprēķina aptuveno aizkadra balss (VO) ilgumu Artūra Skrastiņa ātram TV runas tempam
+// Standarts latviešu TV dokumentālistikā: ~15-16 rakstzīmes sekundē vai ~2.4 vārdi sekundē + neliela elpa
+export function estimateVoDurationSec(text: string): number {
+  const clean = text.replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '').trim();
+  if (!clean) return 0;
+
+  const words = clean.split(/\s+/).filter(Boolean);
+  const charCount = clean.length;
+
+  const secByChars = charCount / 15.5;
+  const secByWords = words.length / 2.4;
+  const rawSec = (secByChars * 0.65 + secByWords * 0.35) + 0.25;
+
+  return Math.max(1, Math.round(rawSec));
+}
+
 // Extract Google Drive file ID or normalize cloud video URL
 export function resolveVideoSource(input: string): {
   type: 'empty' | 'gdrive' | 'direct';
@@ -511,11 +527,16 @@ export const App: React.FC = () => {
   };
 
   const setOutToCurrent = () => {
+    // Ja nav nospiests IN sākuma punkts — neveidot CUT komentāru un neaizpildīt lauku
+    if (inSeconds === null) {
+      setLiveAnnouncement('Vispirms atzīmējiet IN (sākuma) punktu!');
+      return;
+    }
+
     const vid = videoRef.current;
     const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
-    const startSec = inSeconds !== null ? inSeconds : Math.max(0, nowSec - 5);
-    const realStart = Math.min(startSec, nowSec);
-    const realEnd = Math.max(startSec, nowSec);
+    const realStart = Math.min(inSeconds, nowSec);
+    const realEnd = Math.max(inSeconds, nowSec);
 
     // Auto-pause video on Out
     if (vid && !vid.paused) {
@@ -907,7 +928,11 @@ export const App: React.FC = () => {
         const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
         return !isCut && c.text.trim().toUpperCase().startsWith('VO');
       });
-      subtitle = `AIZKADRA BALSS (VO) — ${targetComments.length} fragmenti`;
+      const totalVoSeconds = targetComments.reduce((acc, c) => {
+        const clean = c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '');
+        return acc + estimateVoDurationSec(clean);
+      }, 0);
+      subtitle = `AIZKADRA BALSS (VO) — ${targetComments.length} fragmenti | Kopā: ~${totalVoSeconds}s (Skrastiņa temps)`;
     } else if (mode === 'edits') {
       targetComments = listSource.filter(c => {
         const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
@@ -933,8 +958,10 @@ export const App: React.FC = () => {
         const isVO = !isCut && c.text.trim().toUpperCase().startsWith('VO');
         const prefix = c.resolved ? '[OK] ' : '';
         if (isVO) {
-          const cleanText = c.text.trim().replace(/^VO:?\s*/i, '');
-          return `${prefix}${c.timecode} — VO: ${cleanText}`;
+          const cleanText = c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '');
+          const durSec = estimateVoDurationSec(cleanText);
+          const durStr = durSec > 0 ? ` (~${durSec}s)` : '';
+          return `${prefix}${c.timecode} — VO${durStr}: ${cleanText}`;
         }
         return `${prefix}${c.timecode} — ${c.text}`;
       }),
@@ -1721,21 +1748,22 @@ export const App: React.FC = () => {
                     </button>
                   )}
 
-                  {/* OUT Button — Tiklīdz nospiež, automātiski pievienojas CUT komentārs bez liekām darbībām */}
+                  {/* OUT Button — Aktīva TIKAI tad, ja vispirms ir nospiests IN */}
                   <button
                     type="button"
                     onClick={setOutToCurrent}
-                    className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-extrabold border cursor-pointer ui-fast flex items-center gap-1.5 shadow-xs ${
+                    disabled={inSeconds === null}
+                    className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-extrabold border ui-fast flex items-center gap-1.5 shadow-xs ${
                       inSeconds !== null
-                        ? 'bg-rose-600 hover:bg-rose-700 border-rose-400 text-white'
+                        ? 'bg-rose-600 hover:bg-rose-700 border-rose-400 text-white cursor-pointer hover-lift'
                         : isDark
-                          ? 'bg-[#162740] hover:bg-[#1E3454] border-[#243B56] text-[#E8F0F6]'
-                          : 'bg-[#E8EFF3] hover:bg-[#DDE7ED] border-[#B2C7D4] text-[#002C37]'
+                          ? 'bg-[#162740]/60 border-[#243B56]/50 text-slate-500 cursor-not-allowed opacity-50'
+                          : 'bg-[#E8EFF3]/60 border-[#B2C7D4]/50 text-slate-400 cursor-not-allowed opacity-50'
                     }`}
                     title={
                       inSeconds !== null
                         ? `Izgriezt no ${formatMMSS(inSeconds)} līdz šim brīdim (Out / O taustiņš) — uzreiz saglabā CUT!`
-                        : 'Piefiksēt beigu punktu un uzreiz izgriezt (Out / O taustiņš)'
+                        : 'Vispirms nospiediet IN sākuma punktu (I taustiņš)'
                     }
                   >
                     <span>+ Out</span>
@@ -1876,9 +1904,20 @@ export const App: React.FC = () => {
                 </button>
               </div>
 
-              {/* Options Row */}
-              {!useGdriveEmbed && (
-                <div className="mt-2 flex justify-end">
+              {/* Options & Voice Duration Row */}
+              <div className="mt-2 flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  {voText.trim().length > 0 && (
+                    <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-semibold animate-fade-in">
+                      <span>Skrastiņa balss ilgums:</span>
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 font-mono-tc font-bold">
+                        ~{estimateVoDurationSec(voText)}s
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {!useGdriveEmbed && (
                   <label className={`min-h-[28px] flex items-center gap-2 cursor-pointer select-none text-xs font-semibold ${
                     isDark ? 'text-[#9FB3C8] hover:text-white' : 'text-[#153A54] hover:text-[#002C37]'
                   }`}>
@@ -1890,8 +1929,8 @@ export const App: React.FC = () => {
                     />
                     <span>Turpināt video pēc Enter</span>
                   </label>
-                </div>
-              )}
+                )}
+              </div>
             </form>
           </section>
 
@@ -2241,7 +2280,20 @@ export const App: React.FC = () => {
                                 <span>{c.text.trim().replace(/^CUT\s*/i, '')}</span>
                               </>
                             ) : isVOComment ? (
-                              <span>{c.text.trim().replace(/^VO:?\s*/i, '') || 'Voice-Over'}</span>
+                              (() => {
+                                const cleanText = c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '') || 'Voice-Over';
+                                const durSec = estimateVoDurationSec(cleanText);
+                                return (
+                                  <span className="inline-flex items-baseline gap-1.5 flex-wrap">
+                                    {durSec > 0 && (
+                                      <span className="text-[11px] font-mono-tc font-bold text-amber-600 dark:text-amber-400">
+                                        (~{durSec}s)
+                                      </span>
+                                    )}
+                                    <span>{cleanText}</span>
+                                  </span>
+                                );
+                              })()
                             ) : (
                               c.text
                             )}
