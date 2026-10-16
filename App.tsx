@@ -264,50 +264,97 @@ export const App: React.FC = () => {
   const [copiedShareUrl, setCopiedShareUrl] = useState<boolean>(false);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
 
-  // Direct In & Out helpers (One-click, no mode toggling)
+  // TV Post-Production Rough Cut Calculations: Total cut duration & final broadcast runtime ("Gala raidījums")
+  const totalCutSeconds = useMemo(() => {
+    return comments.reduce((acc, c) => {
+      if (c.endSeconds && c.endSeconds > c.seconds) {
+        return acc + (c.endSeconds - c.seconds);
+      }
+      return acc;
+    }, 0);
+  }, [comments]);
+
+  const finalDuration = Math.max(0, duration - totalCutSeconds);
+
+  // Persist comments to LocalStorage & serverless store
+  const saveComments = (updated: VideoComment[]) => {
+    const sorted = [...updated].sort((a, b) => a.seconds - b.seconds || a.createdAt - b.createdAt);
+    setComments(sorted);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(sorted));
+    } catch {
+      // ignore
+    }
+    fetch(`/api/comments?key=${encodeURIComponent(resolvedSource.key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comments: sorted }),
+    }).catch(() => {});
+  };
+
+  // Direct In & Out helpers (One-click, instant CUT on Out — zero extra clicks!)
   const setInToCurrent = () => {
     const vid = videoRef.current;
     const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
     setInSeconds(nowSec);
     setManualInInput(formatMMSS(nowSec));
     setIsEditingIn(false);
-    if (outSeconds !== null && outSeconds < nowSec) {
-      setOutSeconds(nowSec + 5);
-      setManualOutInput(formatMMSS(nowSec + 5));
-    }
-    setLiveAnnouncement(`In uzlikts: ${formatMMSS(nowSec)}`);
+    setLiveAnnouncement(`In sākums uzlikts: ${formatMMSS(nowSec)}`);
   };
 
   const setOutToCurrent = () => {
     const vid = videoRef.current;
     const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
-    if (inSeconds === null) {
-      const s = Math.max(0, nowSec - 5);
-      setInSeconds(s);
-      setManualInInput(formatMMSS(s));
+    const startSec = inSeconds !== null ? inSeconds : Math.max(0, nowSec - 5);
+    const realStart = Math.min(startSec, nowSec);
+    const realEnd = Math.max(startSec, nowSec);
+
+    // Auto-pause video on Out
+    if (vid && !vid.paused) {
+      vid.pause();
+      setWasAutoPaused(true);
     }
-    setOutSeconds(nowSec);
-    setManualOutInput(formatMMSS(nowSec));
+
+    const tcFormatted = formatCutRange(realStart, realEnd);
+    const userText = commentText.trim();
+    const textToSave = userText
+      ? (userText.toUpperCase().startsWith('CUT') ? userText : `CUT ${userText}`)
+      : 'CUT';
+
+    const newComment: VideoComment = {
+      id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      seconds: realStart,
+      endSeconds: realEnd,
+      timecode: tcFormatted,
+      text: textToSave,
+      resolved: false,
+      createdAt: Date.now(),
+    };
+
+    const next = [...comments, newComment];
+    saveComments(next);
+
+    // Immediately reset In/Out and clear comment box for zero extra actions
+    setInSeconds(null);
+    setOutSeconds(null);
+    setManualInInput('');
+    setManualOutInput('');
+    setIsEditingIn(false);
     setIsEditingOut(false);
+    setCommentText('');
+    setActiveCommentId(newComment.id);
+    setLiveAnnouncement(`Izgriezums ${tcFormatted} automātiski pievienots!`);
 
-    // Nospiežot In un tad Out — uzreiz komentāru laukā iekrīt "CUT"
-    setCommentText(prev => (prev.trim() === '' ? 'CUT' : prev));
-    setTimeout(() => {
-      if (commentInputRef.current) {
-        commentInputRef.current.focus();
-        const len = commentInputRef.current.value.length;
-        commentInputRef.current.setSelectionRange(len, len);
-      }
-    }, 50);
-
-    setLiveAnnouncement(`Out uzlikts: ${formatMMSS(nowSec)}. Ievietots CUT.`);
+    if (resumeAfterSubmit && videoRef.current) {
+      videoRef.current.play().catch(() => {});
+    }
   };
 
   const clearOut = () => {
     setOutSeconds(null);
     setManualOutInput('');
     setIsEditingOut(false);
-    setCommentText(prev => (prev.trim() === 'CUT' ? '' : prev));
+    setCommentText('');
     setLiveAnnouncement('Out noņemts');
   };
 
@@ -334,22 +381,6 @@ export const App: React.FC = () => {
       })
       .catch(() => {});
   }, [storageKey, resolvedSource.key]);
-
-  // Persist comments to LocalStorage & serverless store
-  const saveComments = (updated: VideoComment[]) => {
-    const sorted = [...updated].sort((a, b) => a.seconds - b.seconds || a.createdAt - b.createdAt);
-    setComments(sorted);
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(sorted));
-    } catch {
-      // ignore
-    }
-    fetch(`/api/comments?key=${encodeURIComponent(resolvedSource.key)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ comments: sorted }),
-    }).catch(() => {});
-  };
 
   useEffect(() => {
     if (!localObjectUrl) {
@@ -405,24 +436,25 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
-  // Handle typing in comment input: AUTO-PAUSE video & LOCK In timecode (MM:SS)
+  // Handle typing in comment input: AUTO-PAUSE video immediately on any keystroke & LOCK In timecode
   const handleCommentInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
 
-    if (val.length > 0 && commentText.length === 0) {
-      const vid = videoRef.current;
-      const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
-
+    const vid = videoRef.current;
+    // Auto-pause video unconditionally as soon as user types or edits text
+    if (vid && !vid.paused) {
+      vid.pause();
+      setWasAutoPaused(true);
+      const nowSec = Math.floor(vid.currentTime);
       if (inSeconds === null) {
         setInSeconds(nowSec);
         setManualInInput(formatMMSS(nowSec));
       }
-
-      if (vid && !vid.paused) {
-        vid.pause();
-        setWasAutoPaused(true);
-        setLiveAnnouncement(`Video nopauzēts. In laika kods: ${formatMMSS(nowSec)}.`);
-      }
+      setLiveAnnouncement(`Video nopauzēts pie ${formatMMSS(nowSec)}.`);
+    } else if (inSeconds === null && val.trim().length > 0) {
+      const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
+      setInSeconds(nowSec);
+      setManualInInput(formatMMSS(nowSec));
     }
 
     if (val.length === 0 && outSeconds === null) {
@@ -598,9 +630,12 @@ export const App: React.FC = () => {
 
     const lines = [
       `🎬 ${projectTitle}`,
+      duration > 0 && totalCutSeconds > 0
+        ? `⏱ Sākotnējais ilgums: ${formatMMSS(duration)} | Izgriezts: -${formatMMSS(totalCutSeconds)} (-${totalCutSeconds}s) | Gala raidījums: ${formatMMSS(finalDuration)}`
+        : '',
       `──────────────────────────────`,
       ...listToCopy.map(c => `${c.resolved ? '[✓] ' : ''}${c.timecode} — ${c.text}`),
-    ];
+    ].filter(Boolean);
 
     navigator.clipboard.writeText(lines.join('\n'));
     setCopiedList(true);
@@ -980,13 +1015,12 @@ export const App: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          setActiveVideoInput('');
-                          setVideoInputUrl('');
                           setStreamError(null);
+                          fileInputRef.current?.click();
                         }}
-                        className="min-h-[42px] px-4 py-2 rounded-xl bg-[#162740] border border-[#2A4565] text-white text-xs font-bold cursor-pointer ui-fast"
+                        className="min-h-[42px] px-4 py-2 rounded-xl bg-[#162740] border border-[#2A4565] text-white text-xs font-bold cursor-pointer ui-fast flex items-center gap-1.5"
                       >
-                        Ievadīt citu video saiti
+                        <span>📁 Izvēlēties citu .mp4 failu</span>
                       </button>
                     </div>
                   </div>
@@ -1132,13 +1166,20 @@ export const App: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-3">
-                      <span className="hidden md:inline text-[11px] text-[#9FB3C8]">
-                        Īsceļi: <kbd className="px-1.5 py-0.5 rounded bg-[#162740] font-mono-tc text-[10px]">Space</kbd> pauze &bull; <kbd className="px-1.5 py-0.5 rounded bg-[#162740] font-mono-tc text-[10px]">←/→</kbd> ±5s &bull; <kbd className="px-1.5 py-0.5 rounded bg-[#162740] font-mono-tc text-[10px]">X</kbd> šķēres &bull; <kbd className="px-1.5 py-0.5 rounded bg-[#162740] font-mono-tc text-[10px]">C</kbd> komentēt
-                      </span>
-                      <div className="font-mono-tc font-bold text-xs sm:text-sm text-[#E8F0F6]" aria-label="Pašreizējais laika kods un kopējais garums">
+                      <div className="font-mono-tc font-bold text-xs sm:text-sm text-[#E8F0F6] flex items-center flex-wrap gap-1.5" aria-label="Pašreizējais laika kods un kopējais garums">
                         <span className="text-[#2DD4BF]">{formatMMSS(currentTime)}</span>
-                        <span className="opacity-40 mx-1">/</span>
+                        <span className="opacity-40 mx-0.5">/</span>
                         <span className="opacity-80">{formatMMSS(duration)}</span>
+                        {totalCutSeconds > 0 && (
+                          <span
+                            className="ml-1 sm:ml-2 px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/50 text-rose-300 text-[11px] font-bold flex items-center gap-1.5"
+                            title={`Kopā izgriezts -${formatMMSS(totalCutSeconds)} (-${totalCutSeconds}s). Gala raidījuma garums: ${formatMMSS(finalDuration)}`}
+                          >
+                            <span className="text-rose-400">✂️ -{formatMMSS(totalCutSeconds)}</span>
+                            <span className="opacity-40">|</span>
+                            <span className="text-white">📺 Gala: {formatMMSS(finalDuration)}</span>
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1206,72 +1247,31 @@ export const App: React.FC = () => {
                     </button>
                   )}
 
-                  {/* OUT Button (Appears or activates directly) */}
-                  {outSeconds !== null ? (
-                    <div className="flex items-center gap-1.5 bg-rose-600/90 border border-rose-400 text-white px-3 py-1.5 rounded-xl min-h-[44px] shadow-xs">
-                      <span className="text-xs" aria-hidden="true">✂️</span>
-                      <span className="text-[10px] uppercase font-bold">Out:</span>
-                      {isEditingOut ? (
-                        <input
-                          type="text"
-                          value={manualOutInput}
-                          onChange={e => setManualOutInput(e.target.value)}
-                          onBlur={() => setIsEditingOut(false)}
-                          onKeyDown={e => e.key === 'Enter' && setIsEditingOut(false)}
-                          autoFocus
-                          placeholder="MM:SS"
-                          className="w-16 bg-transparent font-mono-tc font-extrabold text-white text-center focus:outline-hidden text-sm"
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setManualOutInput(formatMMSS(outSeconds));
-                            setIsEditingOut(true);
-                          }}
-                          className="font-mono-tc text-xs sm:text-sm font-extrabold cursor-pointer hover:underline"
-                          title="Klikšķini, lai rediģētu Out laika kodu"
-                        >
-                          {formatMMSS(outSeconds)}
-                        </button>
-                      )}
-
-                      {/* Diff badge */}
-                      {(() => {
-                        const s = inSeconds ?? Math.floor(currentTime);
-                        const diff = Math.max(0, outSeconds - s);
-                        return (
-                          <span className="ml-1 px-1.5 py-0.5 rounded-md bg-black/40 font-mono-tc text-[11px] font-bold">
-                            -{diff}s
-                          </span>
-                        );
-                      })()}
-
-                      {/* Remove Out */}
-                      <button
-                        type="button"
-                        onClick={clearOut}
-                        className="ml-1 text-white/80 hover:text-white font-extrabold text-xs px-1 cursor-pointer"
-                        title="Noņemt Out punktu"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={setOutToCurrent}
-                      className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-extrabold border cursor-pointer ui-fast flex items-center gap-1.5 ${
-                        isDark
+                  {/* OUT Button — Tiklīdz nospiež, automātiski pievienojas CUT komentārs bez liekām darbībām */}
+                  <button
+                    type="button"
+                    onClick={setOutToCurrent}
+                    className={`min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-extrabold border cursor-pointer ui-fast flex items-center gap-1.5 shadow-xs ${
+                      inSeconds !== null
+                        ? 'bg-rose-600 hover:bg-rose-700 border-rose-400 text-white'
+                        : isDark
                           ? 'bg-[#162740] hover:bg-[#1E3454] border-[#243B56] text-[#E8F0F6]'
                           : 'bg-[#E8EFF3] hover:bg-[#DDE7ED] border-[#B2C7D4] text-[#002C37]'
-                      }`}
-                      title="Piefiksēt beigu punktu (Out / O taustiņš)"
-                    >
-                      <span aria-hidden="true">✂️</span>
-                      <span>+ Out</span>
-                    </button>
-                  )}
+                    }`}
+                    title={
+                      inSeconds !== null
+                        ? `Izgriezt no ${formatMMSS(inSeconds)} līdz šim brīdim (Out / O taustiņš) — uzreiz saglabā CUT!`
+                        : 'Piefiksēt beigu punktu un uzreiz izgriezt (Out / O taustiņš)'
+                    }
+                  >
+                    <span aria-hidden="true">✂️</span>
+                    <span>+ Out</span>
+                    {inSeconds !== null && (
+                      <span className="px-1.5 py-0.5 rounded-md bg-black/40 font-mono-tc text-[11px] font-bold">
+                        -{Math.max(0, Math.floor(currentTime) - inSeconds)}s
+                      </span>
+                    )}
+                  </button>
                 </div>
 
                 {/* Comment Input */}
@@ -1284,6 +1284,20 @@ export const App: React.FC = () => {
                   type="text"
                   value={commentText}
                   onFocus={handleCommentInputFocus}
+                  onKeyDown={e => {
+                    if (e.key !== 'Enter' && e.key !== 'Escape') {
+                      const vid = videoRef.current;
+                      if (vid && !vid.paused) {
+                        vid.pause();
+                        setWasAutoPaused(true);
+                        const nowSec = Math.floor(vid.currentTime);
+                        if (inSeconds === null) {
+                          setInSeconds(nowSec);
+                          setManualInInput(formatMMSS(nowSec));
+                        }
+                      }
+                    }
+                  }}
                   onChange={handleCommentInputChange}
                   placeholder={
                     outSeconds !== null
@@ -1312,36 +1326,22 @@ export const App: React.FC = () => {
                 </button>
               </div>
 
-              {/* Helper Row */}
-              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className={isDark ? 'text-[#9FB3C8]' : 'text-[#153A54]'}>
-                    {outSeconds !== null ? (
-                      <span className="text-rose-400 font-bold">
-                        ✂️ Atzīmēts intervāls: {formatMMSS(inSeconds ?? currentTime)} – {formatMMSS(outSeconds)} (taustiņi <kbd className="px-1 py-0.5 rounded bg-black/30 font-mono-tc">I</kbd> un <kbd className="px-1 py-0.5 rounded bg-black/30 font-mono-tc">O</kbd>)
-                      </span>
-                    ) : (
-                      <span>
-                        Pauzējas automātiski. Nospied <strong className="text-amber-400">+ Out</strong> (vai taustiņu <kbd className="px-1 py-0.5 rounded bg-[#162740] font-mono-tc">O</kbd>), lai atzīmētu izgriešanas beigas.
-                      </span>
-                    )}
-                  </span>
-                </div>
-
-                {!useGdriveEmbed && (
-                  <label className={`min-h-[32px] flex items-center gap-2 cursor-pointer select-none font-semibold ${
+              {/* Options Row */}
+              {!useGdriveEmbed && (
+                <div className="mt-2 flex justify-end">
+                  <label className={`min-h-[28px] flex items-center gap-2 cursor-pointer select-none text-xs font-semibold ${
                     isDark ? 'text-[#9FB3C8] hover:text-white' : 'text-[#153A54] hover:text-[#002C37]'
                   }`}>
                     <input
                       type="checkbox"
                       checked={resumeAfterSubmit}
                       onChange={e => setResumeAfterSubmit(e.target.checked)}
-                      className="w-4 h-4 rounded accent-[#0E7C86]"
+                      className="w-3.5 h-3.5 rounded accent-[#0E7C86]"
                     />
                     <span>Turpināt video pēc Enter</span>
                   </label>
-                )}
-              </div>
+                </div>
+              )}
             </form>
           </section>
 
@@ -1405,6 +1405,34 @@ export const App: React.FC = () => {
                   )}
                 </button>
               </div>
+
+              {/* TV Rough Cut Statistics: Total Cut Duration & Final Broadcast Runtime */}
+              {totalCutSeconds > 0 && (
+                <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-mono-tc ui-fast ${
+                  isDark
+                    ? 'bg-rose-950/30 border-rose-500/40'
+                    : 'bg-rose-50 border-rose-300'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-base" aria-hidden="true">✂️</span>
+                    <div>
+                      <div className="text-[10px] uppercase font-bold text-rose-400">Izgriežams kopā:</div>
+                      <div className="font-extrabold text-xs sm:text-sm text-rose-500">
+                        -{formatMMSS(totalCutSeconds)} <span className="text-[10px] font-normal opacity-75">(-{totalCutSeconds}s)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-[10px] uppercase font-bold text-[#2DD4BF] flex items-center justify-end gap-1">
+                      <span>📺 Gala raidījums:</span>
+                    </div>
+                    <div className="font-extrabold text-xs sm:text-sm text-[#2DD4BF]">
+                      {formatMMSS(finalDuration)}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Filter Tabs (Accessible >= 38px targets) */}
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1493,6 +1521,8 @@ export const App: React.FC = () => {
                 filteredComments.map(c => {
                   const isNearPlayhead = !useGdriveEmbed && Math.abs(currentTime - c.seconds) < 1.5;
                   const isSelected = activeCommentId === c.id;
+                  const isCutComment = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+                  const cutDiffSec = c.endSeconds && c.endSeconds > c.seconds ? (c.endSeconds - c.seconds) : null;
 
                   return (
                     <div
@@ -1502,13 +1532,17 @@ export const App: React.FC = () => {
                           ? isDark
                             ? 'border-l-[#10B981]/50 bg-[#0B1422]/40 opacity-75'
                             : 'border-l-[#059669]/50 bg-[#E8EFF3]/50 opacity-75'
-                          : isNearPlayhead || isSelected
+                          : isCutComment
                             ? isDark
-                              ? 'border-l-[#2DD4BF] bg-[#162942]'
-                              : 'border-l-[#0E7C86] bg-[#EAF1F6]'
-                            : isDark
-                              ? 'border-l-transparent hover:bg-[#142236]'
-                              : 'border-l-transparent hover:bg-[#E8EFF3]'
+                              ? 'border-l-rose-500 bg-rose-950/25 hover:bg-rose-950/40 border-b border-b-rose-950/30'
+                              : 'border-l-rose-500 bg-rose-50/85 hover:bg-rose-100/80 border-b border-b-rose-200/50'
+                            : isNearPlayhead || isSelected
+                              ? isDark
+                                ? 'border-l-[#2DD4BF] bg-[#162942]'
+                                : 'border-l-[#0E7C86] bg-[#EAF1F6]'
+                              : isDark
+                                ? 'border-l-transparent hover:bg-[#142236]'
+                                : 'border-l-transparent hover:bg-[#E8EFF3]'
                       }`}
                     >
                       {/* Checkbox: Mark as Resolved (>= 38px hit wrapper for motor accessibility) */}
@@ -1524,9 +1558,13 @@ export const App: React.FC = () => {
                         <span className={`w-5 h-5 rounded-md border flex items-center justify-center ui-fast ${
                           c.resolved
                             ? 'bg-[#10B981] border-[#10B981] text-white'
-                            : isDark
-                              ? 'bg-[#0B131E] border-[#3E5A78] group-hover:border-[#2DD4BF]'
-                              : 'bg-[#E8EFF3] border-[#7896A8] group-hover:border-[#0E7C86]'
+                            : isCutComment
+                              ? isDark
+                                ? 'bg-[#0B131E] border-rose-500/60 group-hover:border-rose-400'
+                                : 'bg-white border-rose-400 group-hover:border-rose-600'
+                              : isDark
+                                ? 'bg-[#0B131E] border-[#3E5A78] group-hover:border-[#2DD4BF]'
+                                : 'bg-[#E8EFF3] border-[#7896A8] group-hover:border-[#0E7C86]'
                         }`}>
                           {c.resolved && (
                             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1536,23 +1574,29 @@ export const App: React.FC = () => {
                         </span>
                       </button>
 
-                      {/* Clickable Timecode Pill (MM:SS or Cut Range) — Jumps video to exact second */}
+                      {/* Clickable Timecode Pill (MM:SS or Cut Range) — Sārtā krāsā priekš CUT */}
                       <button
                         type="button"
                         onClick={() => seekToSeconds(c.seconds, c.id)}
                         aria-label={`Pāriet uz laika kodu ${c.timecode}`}
-                        className={`min-h-[38px] px-2.5 py-1 rounded-xl font-mono-tc text-xs font-extrabold shrink-0 cursor-pointer ui-fast border flex items-center gap-1 ${
+                        className={`min-h-[38px] px-2.5 py-1 rounded-xl font-mono-tc text-xs font-extrabold shrink-0 cursor-pointer ui-fast border flex items-center gap-1.5 ${
                           c.resolved
                             ? isDark
                               ? 'bg-[#162740]/60 border-[#243B56] text-[#10B981]'
                               : 'bg-[#E8EFF3] border-[#B2C7D4] text-[#059669]'
-                            : c.endSeconds
-                              ? 'bg-rose-600 hover:bg-rose-700 border-rose-400 text-white shadow-2xs'
+                            : isCutComment
+                              ? 'bg-rose-600 hover:bg-rose-700 border-rose-400 text-white shadow-xs'
                               : 'bg-[#0E7C86] hover:bg-[#096169] border-[#2DD4BF]/40 text-white shadow-2xs'
                         }`}
                         title={`Pāriet uz ${c.timecode} (${c.seconds} sek.)`}
                       >
-                        {c.timecode}
+                        {isCutComment && <span aria-hidden="true">✂️</span>}
+                        <span>{c.timecode}</span>
+                        {cutDiffSec !== null && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-black/40 text-[10px] font-extrabold font-mono-tc">
+                            -{cutDiffSec}s
+                          </span>
+                        )}
                       </button>
 
                       {/* Comment Text or Inline Edit */}
@@ -1599,12 +1643,25 @@ export const App: React.FC = () => {
                             className={`max-w-[62ch] text-xs sm:text-sm leading-relaxed break-words cursor-pointer ${
                               c.resolved
                                 ? 'line-through opacity-75'
-                                : isDark
-                                  ? 'text-[#E8F0F6] font-medium'
-                                  : 'text-[#002C37] font-medium'
+                                : isCutComment
+                                  ? isDark
+                                    ? 'text-rose-100 font-medium'
+                                    : 'text-rose-950 font-medium'
+                                  : isDark
+                                    ? 'text-[#E8F0F6] font-medium'
+                                    : 'text-[#002C37] font-medium'
                             }`}
                           >
-                            {c.text}
+                            {c.text.trim().toUpperCase().startsWith('CUT') ? (
+                              <>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-rose-600 text-white font-mono-tc text-[10px] font-extrabold mr-1.5 shadow-2xs tracking-wide">
+                                  CUT
+                                </span>
+                                <span>{c.text.trim().replace(/^CUT\s*/i, '')}</span>
+                              </>
+                            ) : (
+                              c.text
+                            )}
                           </p>
                         )}
                       </div>
