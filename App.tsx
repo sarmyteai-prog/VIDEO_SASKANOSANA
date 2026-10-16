@@ -1671,16 +1671,6 @@ export const App: React.FC = () => {
                       </span>
                     )}
                   </button>
-
-                  {/* VO (Voice-Over) Button — dzeltenā krāsā */}
-                  <button
-                    type="button"
-                    onClick={handleAddVO}
-                    className="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-extrabold border cursor-pointer ui-fast flex items-center gap-1.5 shadow-xs bg-amber-500 hover:bg-amber-400 border-amber-300 text-black hover-lift"
-                    title="Atzīmēt šajā vietā Voice-Over (aizkadra tekstu) dzeltenā krāsā (taustiņš V)"
-                  >
-                    <span>+ VO</span>
-                  </button>
                 </div>
 
                 {/* Comment Input */}
