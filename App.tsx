@@ -178,7 +178,7 @@ export const App: React.FC = () => {
 
     return {
       rawVideoInput,
-      title: params.get('t') || 'Video montāža',
+      title: params.get('t') || 'Video labošana',
       sharedComments: cParam ? decodeCommentsFromUrl(cParam) : null,
     };
   }, []);
@@ -884,7 +884,7 @@ export const App: React.FC = () => {
                     </div>
 
                     <h2 className="text-xl sm:text-2xl font-extrabold text-white mb-2 text-balance">
-                      Augšupielādē video montāžai
+                      Augšupielādē video
                     </h2>
                     <p className="max-w-[44ch] text-xs sm:text-sm text-[#9FB3C8] mb-6 leading-relaxed">
                       Ievelc savu <strong>.mp4</strong> vai <strong>.mov</strong> failu šeit vai noklikšķini, lai atvērtu no datora:
@@ -903,7 +903,7 @@ export const App: React.FC = () => {
                         <polyline points="17 8 12 3 7 8"/>
                         <line x1="12" y1="3" x2="12" y2="15"/>
                       </svg>
-                      <span>Izvēlēties .mp4 failu no datora</span>
+                      <span>Izvēlēties video failu no datora</span>
                     </button>
                   </div>
                 ) : (
