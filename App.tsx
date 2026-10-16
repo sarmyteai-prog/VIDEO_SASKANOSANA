@@ -944,6 +944,21 @@ export const App: React.FC = () => {
                       }}
                       onPause={() => setIsPlaying(false)}
                     />
+
+                    {/* Liels, skaidrs profesionāls TV Timecode augšējā kreisajā stūrī */}
+                    <div
+                      aria-label={`Pašreizējais laika kods ${formatMMSS(currentTime)}`}
+                      className="absolute top-3 left-3 sm:top-4 sm:left-4 z-10 pointer-events-none select-none bg-black/80 backdrop-blur-md px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-white/20 shadow-2xl flex items-baseline gap-1.5"
+                    >
+                      <span className="font-mono-tc font-black text-xl sm:text-3xl tracking-wider text-[#2DD4BF] drop-shadow-md">
+                        {formatMMSS(currentTime)}
+                      </span>
+                      {duration > 0 && (
+                        <span className="font-mono-tc text-xs sm:text-base font-bold text-white/50">
+                          / {formatMMSS(duration)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -1138,6 +1153,7 @@ export const App: React.FC = () => {
             {/* SINGLE COMMENT INPUT BAR (Direct In / Out on the same line — Zero window switching) */}
             <form
               onSubmit={handleAddComment}
+              autoComplete="off"
               className={`p-3.5 sm:p-4 rounded-2xl border shadow-md ui-fast ${
                 outSeconds !== null
                   ? 'bg-rose-950/20 border-rose-500 ring-2 ring-rose-500/20'
@@ -1161,6 +1177,7 @@ export const App: React.FC = () => {
                       <span className="text-[10px] font-extrabold text-[#2DD4BF] uppercase">In:</span>
                       <input
                         type="text"
+                        autoComplete="off"
                         value={manualInInput}
                         onChange={e => setManualInInput(e.target.value)}
                         onBlur={() => setIsEditingIn(false)}
@@ -1227,6 +1244,13 @@ export const App: React.FC = () => {
                 </label>
                 <input
                   id="comment-main-input"
+                  name="comment_no_history"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-form-type="other"
                   ref={commentInputRef}
                   type="text"
                   value={commentText}
@@ -1550,6 +1574,7 @@ export const App: React.FC = () => {
                             <input
                               id={`edit-comment-${c.id}`}
                               type="text"
+                              autoComplete="off"
                               value={editingCommentText}
                               onChange={e => setEditingCommentText(e.target.value)}
                               onKeyDown={e => {
