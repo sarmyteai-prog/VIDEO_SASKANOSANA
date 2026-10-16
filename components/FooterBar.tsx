@@ -31,7 +31,7 @@ export const FooterBar: React.FC<FooterBarProps> = ({ isDark = true }) => {
               <polygon points="5 3 19 12 5 21 5 3"/>
             </svg>
             <span className="font-extrabold tracking-wide uppercase text-xs text-balance text-center">
-              KADRS &bull; Video Saskaņošanas Pleijeris
+              POSTQ PREVIEW &bull; Video Saskaņošanas Pleijeris
             </span>
             <span className={`text-xs font-semibold ${isDark ? "text-[#9FB3C8]" : "text-[#2C4A5E]"}`}>&copy; 2026</span>
           </div>

@@ -289,13 +289,25 @@ export const App: React.FC = () => {
     setOutSeconds(nowSec);
     setManualOutInput(formatMMSS(nowSec));
     setIsEditingOut(false);
-    setLiveAnnouncement(`Out uzlikts: ${formatMMSS(nowSec)}`);
+
+    // Nospiežot In un tad Out — uzreiz komentāru laukā iekrīt "CUT"
+    setCommentText(prev => (prev.trim() === '' ? 'CUT' : prev));
+    setTimeout(() => {
+      if (commentInputRef.current) {
+        commentInputRef.current.focus();
+        const len = commentInputRef.current.value.length;
+        commentInputRef.current.setSelectionRange(len, len);
+      }
+    }, 50);
+
+    setLiveAnnouncement(`Out uzlikts: ${formatMMSS(nowSec)}. Ievietots CUT.`);
   };
 
   const clearOut = () => {
     setOutSeconds(null);
     setManualOutInput('');
     setIsEditingOut(false);
+    setCommentText(prev => (prev.trim() === 'CUT' ? '' : prev));
     setLiveAnnouncement('Out noņemts');
   };
 
@@ -734,7 +746,7 @@ export const App: React.FC = () => {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#0B626B] dark:text-[#2DD4BF]">
-                  KADRS &bull; VIDEO SASKAŅOŠANA
+                  POSTQ PREVIEW
                 </span>
                 {resolvedSource.type === 'gdrive' && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#0E7C86]/15 text-[#0B626B] dark:text-[#2DD4BF] border border-[#0E7C86]/30">
@@ -784,43 +796,20 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Right: Add/Change Video buttons, Share Link button, Theme toggle (All >= 42px height) */}
+          {/* Right: Upload Video button, Share Link button, Theme toggle (All >= 42px height) */}
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className={`min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1.5 ${
-                isDark
-                  ? 'bg-[#152336] border-[#243B56] text-[#E8F0F6] hover:border-[#2DD4BF]'
-                  : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:border-[#0E7C86]'
-              }`}
+              className="min-h-[42px] px-4 py-2 rounded-xl text-xs font-extrabold bg-[#0E7C86] hover:bg-[#096169] text-white border border-[#0E7C86] ui-fast hover-lift cursor-pointer flex items-center gap-2 shadow-xs"
               title="Izvēlēties .mp4 video failu no sava datora"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                 <polyline points="17 8 12 3 7 8"/>
                 <line x1="12" y1="3" x2="12" y2="15"/>
               </svg>
-              <span>Atvērt .mp4 no datora</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowSourcePanel(prev => !prev)}
-              aria-expanded={showSourcePanel}
-              className={`min-h-[42px] px-3.5 py-2 rounded-xl text-xs font-bold border ui-fast hover-lift cursor-pointer flex items-center gap-1.5 ${
-                showSourcePanel
-                  ? 'bg-[#0E7C86] border-[#2DD4BF] text-white'
-                  : isDark
-                    ? 'bg-[#152336] border-[#243B56] text-[#E8F0F6] hover:border-[#2DD4BF]'
-                    : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:border-[#0E7C86]'
-              }`}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-              </svg>
-              <span>{hasLoadedVideo ? 'Mainīt video saiti' : 'Ielīmēt Google Drive saiti'}</span>
+              <span>📁 Augšupielādēt video (.mp4)</span>
             </button>
 
             <button
@@ -829,9 +818,11 @@ export const App: React.FC = () => {
               className={`min-h-[42px] px-4 py-2 rounded-xl text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1.5 ${
                 copiedShareUrl
                   ? 'bg-[#10B981] border-[#10B981] text-white'
-                  : 'bg-[#0E7C86] hover:bg-[#096169] border-[#0E7C86] text-white shadow-xs'
+                  : isDark
+                    ? 'bg-[#152336] border-[#243B56] text-[#E8F0F6] hover:border-[#2DD4BF]'
+                    : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:border-[#0E7C86]'
               }`}
-              title="Nokopēt tiešo saiti redaktoram (ar šo video un komentāriem)"
+              title="Nokopēt saiti ar komentāriem"
             >
               {copiedShareUrl ? (
                 <>
@@ -877,55 +868,6 @@ export const App: React.FC = () => {
             </button>
           </div>
         </div>
-
-        {/* Collapsible Video Source Bar */}
-        {showSourcePanel && (
-          <div className={`modal-enter max-w-[1600px] mx-auto mt-3 p-4 rounded-2xl border ${
-            isDark
-              ? 'bg-[#132033] border-[#243B56]'
-              : 'bg-[#EAF1F6] border-[#B2C7D4]'
-          }`}>
-            <form onSubmit={handleApplyVideoSource} className="flex flex-col md:flex-row gap-3 items-stretch md:items-center">
-              <div className="flex-1 flex flex-col sm:flex-row gap-2">
-                <label className="sr-only" htmlFor="project-title-input">Epizodes vai projekta nosaukums</label>
-                <input
-                  id="project-title-input"
-                  type="text"
-                  value={projectTitle}
-                  onChange={e => setProjectTitle(e.target.value)}
-                  placeholder="Epizodes / projekta nosaukums..."
-                  className={`min-h-[42px] sm:w-64 px-3.5 py-2 rounded-xl border text-xs sm:text-sm font-bold ${
-                    isDark
-                      ? 'bg-[#0B131E] border-[#243B56] focus:border-[#2DD4BF] text-white'
-                      : 'bg-[#DFE8EE] border-[#B2C7D4] focus:border-[#0E7C86] text-[#002C37]'
-                  }`}
-                />
-                <label className="sr-only" htmlFor="video-url-input">Google Drive vai tiešā MP4 saite</label>
-                <input
-                  id="video-url-input"
-                  type="text"
-                  value={videoInputUrl}
-                  onChange={e => setVideoInputUrl(e.target.value)}
-                  placeholder="Ielīmē Google Drive saiti (Ikviens, kam ir saite), Dropbox vai tiešo .mp4 URL..."
-                  className={`min-h-[42px] flex-1 px-3.5 py-2 rounded-xl border text-xs sm:text-sm font-medium ${
-                    isDark
-                      ? 'bg-[#0B131E] border-[#243B56] focus:border-[#2DD4BF] text-white'
-                      : 'bg-[#DFE8EE] border-[#B2C7D4] focus:border-[#0E7C86] text-[#002C37]'
-                  }`}
-                />
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="submit"
-                  className="min-h-[42px] px-4 py-2 rounded-xl bg-[#0E7C86] hover:bg-[#096169] text-white text-xs font-extrabold cursor-pointer ui-fast"
-                >
-                  ▶ Atvērt video
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
       </header>
 
       {/* MAIN WORKSPACE: 2-Column Kollaborate.tv Layout */}
@@ -952,78 +894,45 @@ export const App: React.FC = () => {
                 className="relative aspect-video w-full bg-[#080F1A] flex items-center justify-center"
               >
                 {!hasLoadedVideo ? (
-                  /* INTUITIVE VIDEO ONBOARDING SCREEN INSIDE THE PLAYER */
-                  <div className={`w-full h-full p-6 sm:p-10 flex flex-col items-center justify-center text-center ui-fast ${
-                    isDraggingFile
-                      ? 'bg-[#0E7C86]/20 border-2 border-dashed border-[#2DD4BF]'
-                      : 'bg-gradient-to-b from-[#0D1829] to-[#070C14]'
-                  }`}>
-                    <div className="w-14 h-14 rounded-2xl bg-[#0E7C86]/20 border border-[#2DD4BF]/40 flex items-center justify-center text-[#2DD4BF] mb-4 shadow-md" aria-hidden="true">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <polygon points="23 7 16 12 23 17 23 7"/>
-                        <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                  /* PURE FILE UPLOAD & DRAG/DROP ZONE — NO LINK INPUTS */
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className={`w-full h-full p-6 sm:p-12 flex flex-col items-center justify-center text-center ui-fast cursor-pointer group ${
+                      isDraggingFile
+                        ? 'bg-[#0E7C86]/25 border-2 border-dashed border-[#2DD4BF]'
+                        : 'bg-gradient-to-b from-[#0D1829] to-[#070C14] hover:bg-[#0E1A2E]'
+                    }`}
+                    title="Noklikšķini, lai izvēlētos video failu no datora"
+                  >
+                    <div className="w-16 h-16 rounded-3xl bg-[#0E7C86]/20 border border-[#2DD4BF]/40 group-hover:scale-105 group-hover:border-[#2DD4BF] flex items-center justify-center text-[#2DD4BF] mb-4 shadow-lg ui-fast" aria-hidden="true">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
                       </svg>
                     </div>
 
-                    <h2 className="text-lg sm:text-xl font-extrabold text-white mb-1.5 text-balance">
-                      Pievieno video saskaņošanai
+                    <h2 className="text-xl sm:text-2xl font-extrabold text-white mb-2 text-balance">
+                      Augšupielādē video montāžai
                     </h2>
-                    <p className="max-w-[54ch] text-xs sm:text-sm text-[#9FB3C8] mb-6 leading-relaxed">
-                      Ielīmē <strong>Google Drive / Dropbox</strong> saiti (lai redaktors var skatīties 24/7, kad Tavs dators ir izslēgts) vai ievelc <code>.mp4</code> failu no datora:
+                    <p className="max-w-[44ch] text-xs sm:text-sm text-[#9FB3C8] mb-6 leading-relaxed">
+                      Ievelc savu <strong>.mp4</strong> vai <strong>.mov</strong> failu šeit vai noklikšķini, lai atvērtu no datora:
                     </p>
 
-                    {/* Direct URL Input Form right in the center */}
-                    <form onSubmit={handleApplyVideoSource} className="w-full max-w-xl flex flex-col sm:flex-row gap-2.5 mb-4">
-                      <label htmlFor="center-video-url" className="sr-only">Google Drive vai MP4 video saite</label>
-                      <input
-                        id="center-video-url"
-                        type="text"
-                        value={videoInputUrl}
-                        onChange={e => setVideoInputUrl(e.target.value)}
-                        placeholder="Ielīmē Google Drive saiti (https://drive.google.com/file/d/...)..."
-                        className="min-h-[46px] flex-1 px-4 py-2.5 rounded-xl bg-[#0B131E] border border-[#2A4362] focus:border-[#2DD4BF] text-white placeholder-[#7C93AB] text-xs sm:text-sm font-medium"
-                      />
-                      <button
-                        type="submit"
-                        disabled={!videoInputUrl.trim()}
-                        className="min-h-[46px] px-5 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#096169] disabled:opacity-40 text-white font-extrabold text-xs sm:text-sm cursor-pointer ui-fast shrink-0 shadow-md"
-                      >
-                        ▶ Atvērt saiti
-                      </button>
-                    </form>
-
-                    {/* Divider & Local File Button */}
-                    <div className="flex flex-wrap items-center justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="min-h-[42px] px-4 py-2 rounded-xl bg-[#162740] hover:bg-[#1F3556] border border-[#2A4565] text-[#E8F0F6] text-xs font-bold cursor-pointer ui-fast flex items-center gap-2"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                          <polyline points="17 8 12 3 7 8"/>
-                          <line x1="12" y1="3" x2="12" y2="15"/>
-                        </svg>
-                        <span>Vai izvēlies / ievelc .mp4 failu no sava datora</span>
-                      </button>
-                    </div>
-                  </div>
-                ) : resolvedSource.type === 'gdrive' && useGdriveEmbed && resolvedSource.embedUrl ? (
-                  <div className="relative w-full h-full">
-                    <iframe
-                      src={resolvedSource.embedUrl}
-                      className="w-full h-full border-0"
-                      allow="autoplay; fullscreen"
-                      allowFullScreen
-                      title={projectTitle}
-                    />
                     <button
                       type="button"
-                      onClick={() => setUseGdriveEmbed(false)}
-                      className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-black/80 hover:bg-black text-white text-xs font-bold border border-white/20 cursor-pointer ui-fast z-10"
-                      title="Pārslēgt atpakaļ uz tiešo HTML5 video atskaņotāju"
+                      onClick={e => {
+                        e.stopPropagation();
+                        fileInputRef.current?.click();
+                      }}
+                      className="min-h-[46px] px-6 py-2.5 rounded-xl bg-[#0E7C86] hover:bg-[#096169] text-white font-extrabold text-xs sm:text-sm cursor-pointer ui-fast flex items-center gap-2 shadow-md hover-lift"
                     >
-                      ↺ Atpakaļ uz precīzo pleijeri
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                      </svg>
+                      <span>📁 Izvēlēties .mp4 failu no datora</span>
                     </button>
                   </div>
                 ) : (
@@ -1051,25 +960,7 @@ export const App: React.FC = () => {
                         setWasAutoPaused(false);
                       }}
                       onPause={() => setIsPlaying(false)}
-                      onError={() => {
-                        if (resolvedSource.type === 'gdrive') {
-                          setStreamError('Google Drive ierobežo tiešo straumēšanu šim failam. Pārslēdz uz Google iebūvēto straumētāju:');
-                          setUseGdriveEmbed(true);
-                        } else {
-                          setStreamError('Neizdevās ielādēt video no norādītās saites.');
-                        }
-                      }}
                     />
-                    {resolvedSource.type === 'gdrive' && !useGdriveEmbed && (
-                      <button
-                        type="button"
-                        onClick={() => setUseGdriveEmbed(true)}
-                        className="absolute top-3 right-3 px-2.5 py-1 rounded-lg bg-black/60 hover:bg-black/90 text-[#CBD5E1] hover:text-white text-[11px] font-semibold border border-white/20 cursor-pointer ui-fast opacity-60 hover:opacity-100"
-                        title="Ja video buferējas lēni, pārslēdz uz Google iebūvēto atskaņotāju"
-                      >
-                        ⚡ Ja karas: Google Drive pleijeris
-                      </button>
-                    )}
                   </div>
                 )}
 
