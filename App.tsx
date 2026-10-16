@@ -356,6 +356,43 @@ export const App: React.FC = () => {
     setLiveAnnouncement('Out noņemts');
   };
 
+  // Instant VO (Voice-Over) maker with yellow branding
+  const handleAddVO = () => {
+    const vid = videoRef.current;
+    const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
+
+    // Auto-pause video
+    if (vid && !vid.paused) {
+      vid.pause();
+      setWasAutoPaused(true);
+    }
+
+    const userText = commentText.trim();
+    const textToSave = userText
+      ? (userText.toUpperCase().startsWith('VO') ? userText : `VO: ${userText}`)
+      : 'VO';
+
+    const newComment: VideoComment = {
+      id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      seconds: nowSec,
+      timecode: formatMMSS(nowSec),
+      text: textToSave,
+      resolved: false,
+      createdAt: Date.now(),
+    };
+
+    saveComments([...comments, newComment]);
+    setCommentText('');
+    setInSeconds(null);
+    setOutSeconds(null);
+    setActiveCommentId(newComment.id);
+    setLiveAnnouncement(`VO pie ${formatMMSS(nowSec)} pievienots!`);
+
+    if (resumeAfterSubmit && videoRef.current) {
+      videoRef.current.play().catch(() => {});
+    }
+  };
+
   // Load comments when video source changes
   useEffect(() => {
     try {
@@ -425,6 +462,9 @@ export const App: React.FC = () => {
       } else if (e.key === 'o' || e.key === 'O') {
         e.preventDefault();
         setOutToCurrent();
+      } else if (e.key === 'v' || e.key === 'V') {
+        e.preventDefault();
+        handleAddVO();
       }
     };
 
@@ -1050,6 +1090,8 @@ export const App: React.FC = () => {
                       {/* Point Comment Markers */}
                       {comments.map(c => {
                         const leftPct = Math.min(99.2, Math.max(0.8, (c.seconds / duration) * 100));
+                        const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+                        const isVO = !isCut && c.text.trim().toUpperCase().startsWith('VO');
                         return (
                           <button
                             key={c.id}
@@ -1061,7 +1103,13 @@ export const App: React.FC = () => {
                             style={{ left: `${leftPct}%` }}
                             aria-label={`Komentārs pie ${c.timecode}: ${c.text}`}
                             className={`hover-dot absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full border-2 border-[#0C1624] ui-fast cursor-pointer ${
-                              c.resolved ? 'bg-[#10B981]' : c.endSeconds ? 'bg-rose-500' : 'bg-[#F59E0B]'
+                              c.resolved
+                                ? 'bg-[#10B981]'
+                                : isCut
+                                  ? 'bg-rose-500'
+                                  : isVO
+                                    ? 'bg-amber-400 ring-2 ring-amber-400/70'
+                                    : 'bg-[#2DD4BF]'
                             }`}
                             title={`${c.timecode} — ${c.text}`}
                           />
@@ -1221,6 +1269,16 @@ export const App: React.FC = () => {
                         -{Math.max(0, Math.floor(currentTime) - inSeconds)}s
                       </span>
                     )}
+                  </button>
+
+                  {/* VO (Voice-Over) Button — dzeltenā krāsā */}
+                  <button
+                    type="button"
+                    onClick={handleAddVO}
+                    className="min-h-[44px] px-3.5 py-2 rounded-xl text-xs font-extrabold border cursor-pointer ui-fast flex items-center gap-1.5 shadow-xs bg-amber-500 hover:bg-amber-400 border-amber-300 text-black hover-lift"
+                    title="Atzīmēt šajā vietā Voice-Over (aizkadra tekstu) dzeltenā krāsā (taustiņš V)"
+                  >
+                    <span>+ VO</span>
                   </button>
                 </div>
 
@@ -1476,6 +1534,7 @@ export const App: React.FC = () => {
                   const isNearPlayhead = !useGdriveEmbed && Math.abs(currentTime - c.seconds) < 1.5;
                   const isSelected = activeCommentId === c.id;
                   const isCutComment = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+                  const isVOComment = !isCutComment && c.text.trim().toUpperCase().startsWith('VO');
                   const cutDiffSec = c.endSeconds && c.endSeconds > c.seconds ? (c.endSeconds - c.seconds) : null;
 
                   return (
@@ -1490,6 +1549,10 @@ export const App: React.FC = () => {
                             ? isDark
                               ? 'border-l-rose-500 bg-rose-950/25 hover:bg-rose-950/40 border-b border-b-rose-950/30'
                               : 'border-l-rose-500 bg-rose-50/85 hover:bg-rose-100/80 border-b border-b-rose-200/50'
+                          : isVOComment
+                            ? isDark
+                              ? 'border-l-amber-400 bg-amber-950/25 hover:bg-amber-950/40 border-b border-b-amber-950/30'
+                              : 'border-l-amber-400 bg-amber-50/90 hover:bg-amber-100/80 border-b border-b-amber-200/50'
                             : isNearPlayhead || isSelected
                               ? isDark
                                 ? 'border-l-[#2DD4BF] bg-[#162942]'
@@ -1516,6 +1579,10 @@ export const App: React.FC = () => {
                               ? isDark
                                 ? 'bg-[#0B131E] border-rose-500/60 group-hover:border-rose-400'
                                 : 'bg-white border-rose-400 group-hover:border-rose-600'
+                            : isVOComment
+                              ? isDark
+                                ? 'bg-[#0B131E] border-amber-400/60 group-hover:border-amber-300'
+                                : 'bg-white border-amber-400 group-hover:border-amber-600'
                               : isDark
                                 ? 'bg-[#0B131E] border-[#3E5A78] group-hover:border-[#2DD4BF]'
                                 : 'bg-[#E8EFF3] border-[#7896A8] group-hover:border-[#0E7C86]'
@@ -1528,7 +1595,7 @@ export const App: React.FC = () => {
                         </span>
                       </button>
 
-                      {/* Clickable Timecode Pill (MM:SS or Cut Range) — Sārtā krāsā priekš CUT */}
+                      {/* Clickable Timecode Pill (MM:SS or Cut Range) */}
                       <button
                         type="button"
                         onClick={() => seekToSeconds(c.seconds, c.id)}
@@ -1540,6 +1607,8 @@ export const App: React.FC = () => {
                               : 'bg-[#E8EFF3] border-[#B2C7D4] text-[#059669]'
                             : isCutComment
                               ? 'bg-rose-600 hover:bg-rose-700 border-rose-400 text-white shadow-xs'
+                            : isVOComment
+                              ? 'bg-amber-500 hover:bg-amber-400 border-amber-300 text-black font-extrabold shadow-xs'
                               : 'bg-[#0E7C86] hover:bg-[#096169] border-[#2DD4BF]/40 text-white shadow-2xs'
                         }`}
                         title={`Pāriet uz ${c.timecode} (${c.seconds} sek.)`}
@@ -1601,6 +1670,10 @@ export const App: React.FC = () => {
                                   ? isDark
                                     ? 'text-rose-100 font-medium'
                                     : 'text-rose-950 font-medium'
+                                : isVOComment
+                                  ? isDark
+                                    ? 'text-amber-100 font-medium'
+                                    : 'text-amber-950 font-medium'
                                   : isDark
                                     ? 'text-[#E8F0F6] font-medium'
                                     : 'text-[#002C37] font-medium'
@@ -1612,6 +1685,13 @@ export const App: React.FC = () => {
                                   CUT
                                 </span>
                                 <span>{c.text.trim().replace(/^CUT\s*/i, '')}</span>
+                              </>
+                            ) : isVOComment ? (
+                              <>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-500 text-black font-mono-tc text-[10px] font-black mr-1.5 shadow-2xs tracking-wide">
+                                  VO
+                                </span>
+                                <span>{c.text.trim().replace(/^VO:?\s*/i, '') || 'Voice-Over (aizkadra teksts)'}</span>
                               </>
                             ) : (
                               c.text
