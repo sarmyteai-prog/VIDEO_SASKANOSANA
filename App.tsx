@@ -155,30 +155,30 @@ export const App: React.FC = () => {
     }
   }, [isDark]);
 
-  // Read initial parameters from URL (?gd=... or ?v=... & ?t=... & ?c=...)
+  // Read initial parameters from URL (if any) and clear any old saved videos
   const initialParams = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     const gd = params.get('gd');
     const v = params.get('v');
-    const title = params.get('t') || localStorage.getItem('kadrs_last_title') || 'TV Melnā Montāža — Saskaņošana';
     const cParam = params.get('c');
 
-    // Clean out old broken demo URL if it was saved in localStorage earlier
-    const savedVideo = localStorage.getItem('kadrs_last_video') || '';
-    const cleanSavedVideo = savedVideo.includes('commondatastorage.googleapis.com') ? '' : savedVideo;
+    // Clean out old stored Google Drive videos from localStorage
+    try {
+      localStorage.removeItem('kadrs_last_video');
+    } catch {
+      // ignore
+    }
 
     let rawVideoInput = '';
     if (gd) {
       rawVideoInput = `https://drive.google.com/file/d/${gd}/view`;
     } else if (v) {
       rawVideoInput = v;
-    } else {
-      rawVideoInput = cleanSavedVideo;
     }
 
     return {
       rawVideoInput,
-      title,
+      title: params.get('t') || 'Video montāža',
       sharedComments: cParam ? decodeCommentsFromUrl(cParam) : null,
     };
   }, []);
@@ -381,14 +381,12 @@ export const App: React.FC = () => {
   }, [storageKey, resolvedSource.key]);
 
   useEffect(() => {
-    if (!localObjectUrl) {
-      if (activeVideoInput) {
-        localStorage.setItem('kadrs_last_video', activeVideoInput);
-      } else {
-        localStorage.removeItem('kadrs_last_video');
-      }
+    try {
+      localStorage.removeItem('kadrs_last_video');
+    } catch {
+      // ignore
     }
-  }, [activeVideoInput, localObjectUrl]);
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('kadrs_last_title', projectTitle);
