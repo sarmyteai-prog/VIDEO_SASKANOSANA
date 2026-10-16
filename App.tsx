@@ -761,16 +761,6 @@ export const App: React.FC = () => {
                 <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#0B626B] dark:text-[#2DD4BF]">
                   POSTQ PREVIEW
                 </span>
-                {resolvedSource.type === 'gdrive' && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#0E7C86]/15 text-[#0B626B] dark:text-[#2DD4BF] border border-[#0E7C86]/30">
-                    Google Drive 24/7
-                  </span>
-                )}
-                {localFileName && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                    Lokāls fails
-                  </span>
-                )}
               </div>
 
               {isEditingTitle ? (
