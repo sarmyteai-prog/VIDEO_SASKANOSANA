@@ -1963,20 +1963,10 @@ export const App: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-3">
-                      <div className="font-mono-tc font-bold text-xs sm:text-sm text-[#E8F0F6] flex items-center flex-wrap gap-1.5" aria-label="Pašreizējais laika kods un kopējais garums">
+                      <div className="font-mono-tc font-bold text-xs sm:text-sm text-[#E8F0F6] flex items-center gap-1.5" aria-label="Pašreizējais laika kods un kopējais garums">
                         <span className="text-[#2DD4BF]">{formatSMPTE(currentTime)}</span>
                         <span className="opacity-40 mx-0.5">/</span>
                         <span className="opacity-80">{formatSMPTE(duration)}</span>
-                        {totalCutSeconds > 0 && (
-                          <span
-                            className="ml-1 sm:ml-2 px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/50 text-rose-300 text-[11px] font-bold flex items-center gap-1.5"
-                            title={`Kopā izgriezts -${formatSMPTE(totalCutSeconds)} (-${totalCutSeconds}s). Gala raidījuma garums: ${formatSMPTE(finalDuration)}`}
-                          >
-                            <span className="text-rose-400">-{formatSMPTE(totalCutSeconds)}</span>
-                            <span className="opacity-40">|</span>
-                            <span className="text-white">Gala: {formatSMPTE(finalDuration)}</span>
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -2422,27 +2412,28 @@ export const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* TV Rough Cut Statistics: Total Cut Duration & Final Broadcast Runtime */}
+              {/* TV Rough Cut Statistics: Total Cut Duration & Final Broadcast Runtime (Subtle, non-distracting) */}
               {totalCutSeconds > 0 && (
-                <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs font-mono-tc ui-fast ${
+                <div className={`px-3 py-2 rounded-xl border flex items-center justify-between gap-2 text-xs font-mono-tc ui-fast ${
                   isDark
-                    ? 'bg-rose-950/30 border-rose-500/40'
-                    : 'bg-rose-50 border-rose-300'
+                    ? 'bg-[#122033] border-[#1E334A] text-slate-300'
+                    : 'bg-slate-100/90 border-slate-200 text-slate-700'
                 }`}>
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-rose-400">Izgriežams kopā:</div>
-                    <div className="font-extrabold text-xs sm:text-sm text-rose-500">
-                      -{formatSMPTE(totalCutSeconds)} <span className="text-[10px] font-normal opacity-75">(-{totalCutSeconds}s)</span>
-                    </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Izgriezts:</span>
+                    <span className="font-extrabold text-slate-200 dark:text-slate-100">
+                      -{totalCutSeconds}s
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      (-{formatSMPTE(totalCutSeconds)})
+                    </span>
                   </div>
 
-                  <div className="text-right">
-                    <div className="text-[10px] uppercase font-bold text-[#2DD4BF]">
-                      Gala raidījums:
-                    </div>
-                    <div className="font-extrabold text-xs sm:text-sm text-[#2DD4BF]">
+                  <div className="flex items-center gap-1.5 text-right flex-wrap justify-end">
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Gala TC:</span>
+                    <span className="font-extrabold text-[#2DD4BF] text-xs sm:text-sm">
                       {formatSMPTE(finalDuration)}
-                    </div>
+                    </span>
                   </div>
                 </div>
               )}
