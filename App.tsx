@@ -59,6 +59,15 @@ export function estimateVoDurationSec(text: string): number {
   return Math.max(1, Math.round(rawSec));
 }
 
+// Formatē sekundes cilvēkam lasāmā formātā (piem. 48s vai 1m 15s)
+export function formatVoDuration(sec: number): string {
+  if (sec <= 0) return '0s';
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
 // Extract Google Drive file ID or normalize cloud video URL
 export function resolveVideoSource(input: string): {
   type: 'empty' | 'gdrive' | 'direct';
@@ -280,7 +289,7 @@ export const App: React.FC = () => {
 
   // Video player refs & playback state
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const commentInputRef = useRef<HTMLInputElement | null>(null);
+  const commentInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -300,7 +309,7 @@ export const App: React.FC = () => {
   const [wasAutoPaused, setWasAutoPaused] = useState<boolean>(false);
 
   // Dedicated Voice-Over (VO) Lane State & Ref
-  const voInputRef = useRef<HTMLInputElement | null>(null);
+  const voInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const [voText, setVoText] = useState<string>('');
   const [voTimeSec, setVoTimeSec] = useState<number | null>(null);
 
@@ -727,7 +736,7 @@ export const App: React.FC = () => {
   });
 
   // Handle typing in comment input: AUTO-PAUSE video immediately on any keystroke & LOCK In timecode
-  const handleCommentInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCommentInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const val = e.target.value;
 
     const vid = videoRef.current;
@@ -915,10 +924,10 @@ export const App: React.FC = () => {
 
   const [copiedMode, setCopiedMode] = useState<'all' | 'vo' | 'edits' | null>(null);
 
-  // Copy comments list as clean plain text with mode support (all, only VO, only edits)
-  const copyCommentsMode = (mode: 'all' | 'vo' | 'edits') => {
+  // Generates clean plain-text export according to selected mode
+  const generateExportText = (mode: 'all' | 'vo' | 'edits' = 'all'): string | null => {
     const listSource = filteredComments.length > 0 ? filteredComments : comments;
-    if (listSource.length === 0) return;
+    if (listSource.length === 0) return null;
 
     let targetComments = listSource;
     let subtitle = '';
@@ -932,7 +941,7 @@ export const App: React.FC = () => {
         const clean = c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '');
         return acc + estimateVoDurationSec(clean);
       }, 0);
-      subtitle = `AIZKADRA BALSS (VO) — ${targetComments.length} fragmenti | Kopā: ~${totalVoSeconds}s (Skrastiņa temps)`;
+      subtitle = `AIZKADRA BALSS (VO) — ${targetComments.length} fragmenti | Kopā: ~${formatVoDuration(totalVoSeconds)} (Skrastiņa temps)`;
     } else if (mode === 'edits') {
       targetComments = listSource.filter(c => {
         const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
@@ -943,7 +952,7 @@ export const App: React.FC = () => {
 
     if (targetComments.length === 0) {
       alert(mode === 'vo' ? 'Šajā epizodē nav VO (aizkadra balss) ierakstu.' : 'Šajā epizodē nav montāžas labojumu.');
-      return;
+      return null;
     }
 
     const lines = [
@@ -960,14 +969,22 @@ export const App: React.FC = () => {
         if (isVO) {
           const cleanText = c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '');
           const durSec = estimateVoDurationSec(cleanText);
-          const durStr = durSec > 0 ? ` (~${durSec}s)` : '';
+          const durStr = durSec > 0 ? ` (~${formatVoDuration(durSec)})` : '';
           return `${prefix}${c.timecode} — VO${durStr}: ${cleanText}`;
         }
         return `${prefix}${c.timecode} — ${c.text}`;
       }),
     ].filter(Boolean);
 
-    navigator.clipboard.writeText(lines.join('\n'));
+    return lines.join('\n');
+  };
+
+  // Copy comments list as clean plain text with mode support (all, only VO, only edits)
+  const copyCommentsMode = (mode: 'all' | 'vo' | 'edits') => {
+    const text = generateExportText(mode);
+    if (!text) return;
+
+    navigator.clipboard.writeText(text);
     setCopiedMode(mode);
     setCopiedList(true);
     setTimeout(() => {
@@ -980,8 +997,20 @@ export const App: React.FC = () => {
         ? 'Tikai VO teksti nokopēti starpliktuvē.'
         : mode === 'edits'
           ? 'Tikai montāžas labojumi nokopēti starpliktuvē.'
-          : 'Pilns saraksts nokopēts starpliktuvē.';
+          : 'Visi komentāri un laiki nokopēti starpliktuvē.';
     setLiveAnnouncement(announcement);
+  };
+
+  // 1-Click Export to Google Docs (Copies formatted text and opens docs.new in a new tab)
+  const exportToGoogleDoc = (mode: 'all' | 'vo' | 'edits' = 'all') => {
+    const text = generateExportText(mode);
+    if (!text) return;
+
+    navigator.clipboard.writeText(text);
+    window.open('https://docs.new', '_blank');
+
+    setLiveAnnouncement('Saraksts nokopēts! Jaunajā Google Doc dokumentā nospiediet Ctrl + V.');
+    alert('Saraksts ir nokopēts starpliktuvē!\n\nTikko jaunā cilnē atvērts jauns Google Doc. Tur vienkārši nospiediet Ctrl + V (Paste), lai ievietotu labojumus.');
   };
 
   const copyCommentsAsText = () => copyCommentsMode('all');
@@ -1775,11 +1804,11 @@ export const App: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Comment Input */}
+                {/* Comment Textarea (Expanded multi-line for TV editor notes) */}
                 <label htmlFor="comment-main-input" className="sr-only">
                   {outSeconds !== null ? 'Īsināšanas komentāra teksts' : 'Komentāra teksts'}
                 </label>
-                <input
+                <textarea
                   id="comment-main-input"
                   name="comment_no_history"
                   autoComplete="off"
@@ -1788,11 +1817,16 @@ export const App: React.FC = () => {
                   spellCheck={false}
                   data-lpignore="true"
                   data-form-type="other"
-                  ref={commentInputRef}
-                  type="text"
+                  ref={commentInputRef as React.RefObject<HTMLTextAreaElement>}
+                  rows={2}
                   value={commentText}
                   onFocus={handleCommentInputFocus}
                   onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleAddComment();
+                      return;
+                    }
                     if (e.key !== 'Enter' && e.key !== 'Escape') {
                       const vid = videoRef.current;
                       if (vid && !vid.paused) {
@@ -1810,9 +1844,9 @@ export const App: React.FC = () => {
                   placeholder={
                     outSeconds !== null
                       ? `Ko izgriezt vai saīsināt no ${formatMMSS(inSeconds ?? currentTime)} līdz ${formatMMSS(outSeconds)}?`
-                      : 'Sāc rakstīt komentāru — video automātiski nopauzēsies...'
+                      : 'Sāc rakstīt komentāru vai režisora piezīmi (Enter — saglabāt, Shift+Enter — jauna rinda)...'
                   }
-                  className={`min-h-[44px] flex-1 px-4 py-2.5 rounded-xl border text-sm font-medium ui-fast ${
+                  className={`min-h-[50px] flex-1 px-4 py-2.5 rounded-xl border text-sm font-medium ui-fast resize-y ${
                     isDark
                       ? 'bg-[#0B131E] border-[#243B56] focus:border-[#2DD4BF] text-white placeholder-[#7C93AB]'
                       : 'bg-[#E8EFF3] border-[#B2C7D4] focus:border-[#0E7C86] text-[#002C37] placeholder-[#4A677A]'
@@ -1823,7 +1857,7 @@ export const App: React.FC = () => {
                 <button
                   type="submit"
                   disabled={!commentText.trim()}
-                  className={`min-h-[44px] px-5 py-2.5 rounded-xl disabled:opacity-40 text-white font-extrabold text-xs sm:text-sm ui-fast cursor-pointer shrink-0 flex items-center justify-center gap-1.5 shadow-xs ${
+                  className={`min-h-[50px] px-5 py-2.5 rounded-xl disabled:opacity-40 text-white font-extrabold text-xs sm:text-sm ui-fast cursor-pointer shrink-0 flex items-center justify-center gap-1.5 shadow-xs ${
                     outSeconds !== null
                       ? 'bg-rose-600 hover:bg-rose-700'
                       : 'bg-[#0E7C86] hover:bg-[#096169]'
@@ -1851,18 +1885,18 @@ export const App: React.FC = () => {
                     setVoTimeSec(nowSec);
                     voInputRef.current?.focus();
                   }}
-                  className="min-h-[42px] px-4 py-1.5 rounded-xl font-mono-tc font-black bg-amber-500 hover:bg-amber-400 text-black border border-amber-300 shadow-xs flex items-center justify-center cursor-pointer ui-fast hover-lift shrink-0"
+                  className="min-h-[50px] px-4 py-1.5 rounded-xl font-mono-tc font-black bg-amber-500 hover:bg-amber-400 text-black border border-amber-300 shadow-xs flex items-center justify-center cursor-pointer ui-fast hover-lift shrink-0"
                   title="Fiksēt šo sekundi kā Voice-Over (VO)"
                 >
                   <span className="uppercase tracking-wider font-black text-sm">VO</span>
                 </button>
 
-                {/* VO Dedicated Input */}
+                {/* VO Dedicated Textarea (Expanded multi-line for long voice-over scripts) */}
                 <label htmlFor="vo-dedicated-input" className="sr-only">Aizkadra teksts (VO)</label>
-                <input
+                <textarea
                   id="vo-dedicated-input"
-                  ref={voInputRef}
-                  type="text"
+                  ref={voInputRef as React.RefObject<HTMLTextAreaElement>}
+                  rows={2}
                   autoComplete="off"
                   autoCorrect="off"
                   spellCheck={false}
@@ -1879,13 +1913,13 @@ export const App: React.FC = () => {
                     }
                   }}
                   onKeyDown={e => {
-                    if (e.key === 'Enter') {
+                    if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSaveDedicatedVO();
                     }
                   }}
-                  placeholder="Ieraksti aizkadra tekstu (VO), kas šeit jārunā..."
-                  className={`min-h-[42px] flex-1 px-4 py-2 rounded-xl border text-xs sm:text-sm font-medium ui-fast ${
+                  placeholder="Ieraksti aizkadra tekstu (VO)... (Enter — saglabāt, Shift+Enter — jauna rinda)"
+                  className={`min-h-[50px] flex-1 px-4 py-2 rounded-xl border text-xs sm:text-sm font-medium ui-fast resize-y ${
                     isDark
                       ? 'bg-[#151D18] border-amber-500/50 focus:border-amber-400 text-amber-100 placeholder-amber-400/50'
                       : 'bg-amber-50 border-amber-300 focus:border-amber-500 text-amber-950 placeholder-amber-800/50'
@@ -1897,7 +1931,7 @@ export const App: React.FC = () => {
                   type="button"
                   onClick={handleSaveDedicatedVO}
                   disabled={!voText.trim()}
-                  className="min-h-[42px] px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-extrabold text-xs sm:text-sm cursor-pointer ui-fast flex items-center justify-center gap-1.5 shadow-xs shrink-0 hover-lift"
+                  className="min-h-[50px] px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-extrabold text-xs sm:text-sm cursor-pointer ui-fast flex items-center justify-center gap-1.5 shadow-xs shrink-0 hover-lift"
                 >
                   <span>Pievienot VO</span>
                   <span className="text-xs opacity-75 font-mono-tc hidden sm:inline" aria-hidden="true">↵</span>
@@ -1911,7 +1945,7 @@ export const App: React.FC = () => {
                     <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-semibold animate-fade-in">
                       <span>Skrastiņa balss ilgums:</span>
                       <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 font-mono-tc font-bold">
-                        ~{estimateVoDurationSec(voText)}s
+                        ~{formatVoDuration(estimateVoDurationSec(voText))}
                       </span>
                     </div>
                   )}
@@ -2010,6 +2044,28 @@ export const App: React.FC = () => {
                     title="Nokopēt TIKAI montāžas labojumus un CUT izgriezumus (montāžistam)"
                   >
                     <span>{copiedMode === 'edits' ? 'Labojumi nokopēti!' : 'Tikai labojumus'}</span>
+                  </button>
+
+                  {/* 1-Click Export to Google Docs */}
+                  <button
+                    type="button"
+                    onClick={() => exportToGoogleDoc('all')}
+                    disabled={comments.length === 0}
+                    className={`min-h-[34px] px-2.5 py-1 rounded-xl text-[11px] sm:text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1.5 disabled:opacity-40 shadow-xs ${
+                      isDark
+                        ? 'bg-[#142B47] border-[#2D73B4] text-[#70B4FF] hover:bg-[#1A385C] hover:text-white'
+                        : 'bg-[#E1EDF8] border-[#93C5FD] text-[#1E40AF] hover:bg-[#D3E4F6]'
+                    }`}
+                    title="Nokopēt visu un uzreiz atvērt jaunu Google Doc dokumentu (docs.new)"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="16" y1="13" x2="8" y2="13"/>
+                      <line x1="16" y1="17" x2="8" y2="17"/>
+                      <polyline points="10 9 9 9 8 9"/>
+                    </svg>
+                    <span>Google Doc</span>
                   </button>
                 </div>
               </div>
