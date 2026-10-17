@@ -906,14 +906,17 @@ export const App: React.FC = () => {
       if (e.code === 'Space' || e.key === 'k' || e.key === 'K') {
         if (videoRef.current) {
           e.preventDefault();
+          e.stopPropagation();
           if (videoRef.current.paused) videoRef.current.play().catch(() => {});
           else videoRef.current.pause();
         }
       } else if (e.key === 'ArrowLeft' || e.key === 'j' || e.key === 'J') {
         e.preventDefault();
+        e.stopPropagation();
         stepSeconds(-1);
       } else if (e.key === 'ArrowRight' || e.key === 'l' || e.key === 'L') {
         e.preventDefault();
+        e.stopPropagation();
         stepSeconds(1);
       } else if (e.key === 'c' || e.key === 'C' || e.key === '/') {
         e.preventDefault();
@@ -930,8 +933,8 @@ export const App: React.FC = () => {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   });
 
   // Handle typing in comment input: AUTO-PAUSE video immediately on any keystroke & LOCK In timecode
@@ -1324,9 +1327,13 @@ export const App: React.FC = () => {
   };
 
   const stepSeconds = (delta: number) => {
-    if (!videoRef.current) return;
-    const nextSec = Math.max(0, Math.min(duration || 99999, videoRef.current.currentTime + delta));
-    videoRef.current.currentTime = nextSec;
+    const vid = videoRef.current;
+    if (!vid) return;
+    const dur = duration || vid.duration || 99999;
+    const current = vid.currentTime;
+    const baseSec = Math.round(current);
+    const nextSec = Math.max(0, Math.min(dur, baseSec + delta));
+    vid.currentTime = nextSec;
     setCurrentTime(nextSec);
     if (inSeconds !== null) {
       setInSeconds(Math.floor(nextSec));
@@ -1757,6 +1764,20 @@ export const App: React.FC = () => {
                       controlsList="nodownload nopictureinpicture"
                       disablePictureInPicture
                       onContextMenu={e => e.preventDefault()}
+                      onKeyDown={e => {
+                        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'j' || e.key === 'J' || e.key === 'l' || e.key === 'L') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          stepSeconds(e.key === 'ArrowLeft' || e.key === 'j' || e.key === 'J' ? -1 : 1);
+                        } else if (e.code === 'Space' || e.key === 'k' || e.key === 'K') {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (videoRef.current) {
+                            if (videoRef.current.paused) videoRef.current.play().catch(() => {});
+                            else videoRef.current.pause();
+                          }
+                        }
+                      }}
                       onTimeUpdate={() => {
                         if (videoRef.current) {
                           setCurrentTime(videoRef.current.currentTime);
@@ -2523,39 +2544,54 @@ export const App: React.FC = () => {
                       {/* Comment Text or Inline Edit */}
                       <div className="flex-1 min-w-0 pt-1">
                         {editingCommentId === c.id ? (
-                          <div className="flex flex-col gap-2">
-                            <label htmlFor={`edit-comment-${c.id}`} className="sr-only">Rediģēt komentāra tekstu</label>
-                            <input
+                          <div className="flex flex-col gap-2 w-full">
+                            <label htmlFor={`edit-comment-${c.id}`} className="sr-only">Rediģēt tekstu</label>
+                            <textarea
                               id={`edit-comment-${c.id}`}
-                              type="text"
-                              autoComplete="off"
+                              rows={isVOComment || editingCommentText.length > 80 ? 6 : 3}
                               value={editingCommentText}
                               onChange={e => setEditingCommentText(e.target.value)}
                               onKeyDown={e => {
-                                if (e.key === 'Enter') saveEditedComment(c.id);
+                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                                  e.preventDefault();
+                                  saveEditedComment(c.id);
+                                }
                                 if (e.key === 'Escape') setEditingCommentId(null);
                               }}
                               autoFocus
-                              className={`min-h-[38px] w-full px-3 py-1.5 rounded-lg border text-xs sm:text-sm font-medium ${
+                              className={`w-full min-h-[100px] px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm font-medium leading-relaxed resize-y shadow-xs ui-fast ${
                                 isDark
-                                  ? 'bg-[#0B131E] border-[#2DD4BF] text-white'
-                                  : 'bg-[#E8EFF3] border-[#0E7C86] text-[#002C37]'
+                                  ? isVOComment
+                                    ? 'bg-[#151D18] border-amber-400 text-amber-100 focus:ring-1 focus:ring-amber-400'
+                                    : 'bg-[#0B131E] border-[#2DD4BF] text-white focus:ring-1 focus:ring-[#2DD4BF]'
+                                  : isVOComment
+                                    ? 'bg-amber-50 border-amber-400 text-amber-950 focus:ring-1 focus:ring-amber-400'
+                                    : 'bg-[#E8EFF3] border-[#0E7C86] text-[#002C37] focus:ring-1 focus:ring-[#0E7C86]'
                               }`}
                             />
+                            {isVOComment && (
+                              <div className="text-[11px] font-mono-tc font-semibold text-amber-500 flex items-center gap-1.5">
+                                <span>Ieraksta ilgums: ~{formatVoDuration(estimateVoDurationSec(editingCommentText.replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '')))}</span>
+                              </div>
+                            )}
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
                                 onClick={() => saveEditedComment(c.id)}
-                                className="min-h-[34px] px-3 py-1 rounded-lg bg-[#0E7C86] text-white text-xs font-bold cursor-pointer ui-fast"
+                                className={`min-h-[34px] px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer ui-fast ${
+                                  isVOComment
+                                    ? 'bg-amber-500 hover:bg-amber-400 text-black'
+                                    : 'bg-[#0E7C86] hover:bg-[#096169] text-white'
+                                }`}
                               >
-                                Saglabāt
+                                Saglabāt (Ctrl+Enter)
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setEditingCommentId(null)}
-                                className="min-h-[34px] px-3 py-1 rounded-lg text-xs font-semibold opacity-80 hover:opacity-100 cursor-pointer"
+                                className="min-h-[34px] px-3 py-1.5 rounded-lg text-xs font-semibold opacity-75 hover:opacity-100 cursor-pointer"
                               >
-                                Atcelt
+                                Atcelt (Esc)
                               </button>
                             </div>
                           </div>
