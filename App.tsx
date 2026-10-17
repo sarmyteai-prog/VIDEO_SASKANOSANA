@@ -104,6 +104,71 @@ export function formatVoDuration(sec: number): string {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
+// ==========================================
+// IndexedDB Persistent Video Cache (Zero Re-Upload)
+// Saglabā video failus pārlūka IndexedDB, lai video paliktu aktīvs arī pēc lapas pārlādes (F5) vai cilnes aizvēršanas
+// ==========================================
+const VIDEO_DB_NAME = 'postq_video_cache_db';
+const VIDEO_STORE_NAME = 'project_videos';
+
+function openVideoDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      return reject(new Error('IndexedDB not supported'));
+    }
+    const request = indexedDB.open(VIDEO_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(VIDEO_STORE_NAME)) {
+        db.createObjectStore(VIDEO_STORE_NAME, { keyPath: 'projectId' });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function saveVideoToCache(projectId: string, file: Blob | File, fileName: string): Promise<void> {
+  try {
+    const db = await openVideoDB();
+    const tx = db.transaction(VIDEO_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(VIDEO_STORE_NAME);
+    store.put({ projectId, file, fileName, updatedAt: Date.now() });
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+  } catch (err) {
+    console.warn('Neizdevās saglabāt video kešatmiņā:', err);
+  }
+}
+
+export async function getVideoFromCache(projectId: string): Promise<{ file: Blob | File; fileName: string } | null> {
+  try {
+    const db = await openVideoDB();
+    const tx = db.transaction(VIDEO_STORE_NAME, 'readonly');
+    const store = tx.objectStore(VIDEO_STORE_NAME);
+    const request = store.get(projectId);
+    return await new Promise((resolve) => {
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => resolve(null);
+    });
+  } catch (err) {
+    console.warn('Neizdevās nolasīt video no kešatmiņas:', err);
+    return null;
+  }
+}
+
+export async function removeVideoFromCache(projectId: string): Promise<void> {
+  try {
+    const db = await openVideoDB();
+    const tx = db.transaction(VIDEO_STORE_NAME, 'readwrite');
+    tx.objectStore(VIDEO_STORE_NAME).delete(projectId);
+  } catch (err) {
+    // ignore
+  }
+}
+
 // Extract Google Drive file ID or normalize cloud video URL
 export function resolveVideoSource(input: string): {
   type: 'empty' | 'gdrive' | 'direct';
@@ -428,6 +493,29 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [comments.length]);
 
+  // Auto-restore cached video from IndexedDB on startup or project switch (Zero Re-Upload)
+  useEffect(() => {
+    let isCancelled = false;
+    getVideoFromCache(activeProjectId).then(cached => {
+      if (isCancelled || !cached) return;
+      if (!localObjectUrl) {
+        const objUrl = URL.createObjectURL(cached.file);
+        setLocalObjectUrl(objUrl);
+        setLocalFileName(cached.fileName);
+        setSessionVideos(prev => ({
+          ...prev,
+          [activeProjectId]: {
+            objectUrl: objUrl,
+            fileName: cached.fileName,
+          },
+        }));
+      }
+    });
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeProjectId]);
+
   // Switch between episodes / projects — switches both video player AND comments together
   const switchProject = (targetId: string) => {
     const target = projects.find(p => p.id === targetId);
@@ -465,10 +553,25 @@ export const App: React.FC = () => {
       setLocalFileName(null);
       setActiveVideoInput(targetVid?.videoInput || target.videoUrl || '');
     } else {
-      // Episode has no video loaded yet in this session
+      // Episode has no video loaded in session yet — check IndexedDB cache!
       setLocalObjectUrl(null);
       setLocalFileName(target.videoFileName || null);
       setActiveVideoInput('');
+
+      getVideoFromCache(target.id).then(cached => {
+        if (cached) {
+          const objUrl = URL.createObjectURL(cached.file);
+          setLocalObjectUrl(objUrl);
+          setLocalFileName(cached.fileName);
+          setSessionVideos(prev => ({
+            ...prev,
+            [target.id]: {
+              objectUrl: objUrl,
+              fileName: cached.fileName,
+            },
+          }));
+        }
+      });
     }
 
     try {
@@ -528,7 +631,7 @@ export const App: React.FC = () => {
     setProjects(next);
     persistProjectsToStorage(next);
 
-    // Clean up session video
+    // Clean up session video and IndexedDB persistent cache
     if (sessionVideos[idToDelete]?.objectUrl) {
       URL.revokeObjectURL(sessionVideos[idToDelete].objectUrl!);
       setSessionVideos(prev => {
@@ -537,6 +640,7 @@ export const App: React.FC = () => {
         return copy;
       });
     }
+    removeVideoFromCache(idToDelete);
 
     if (activeProjectId === idToDelete) {
       const nextActive = next[0];
@@ -1169,6 +1273,9 @@ export const App: React.FC = () => {
     setLocalObjectUrl(objUrl);
     setLocalFileName(file.name);
     setActiveVideoInput('');
+
+    // Persist file into browser IndexedDB so it survives page reloads (F5) and tab closures
+    saveVideoToCache(activeProjectId, file, file.name);
 
     const cleanFileName = file.name.replace(/\.[^/.]+$/, '');
     const updatedTitle = (!projectTitle || projectTitle.startsWith('1. Epizode') || projectTitle === 'Video labošana')
