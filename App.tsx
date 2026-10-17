@@ -1615,16 +1615,8 @@ export const App: React.FC = () => {
             className="hidden"
           />
 
-          {/* Right: Auto-save status, Upload Video button, Theme toggle */}
+          {/* Right: Upload Video button, Theme toggle */}
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Reāllaika auto-saglabāšanas indikators redaktora sirdsmieram */}
-            <div
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono-tc font-bold shadow-2xs"
-              title="Visi labojumi, CUT un VO automātiski tiek saglabāti pārlūkā reāllaikā"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              <span>{isSaving ? 'Saglabā...' : 'Viss saglabāts datorā'}</span>
-            </div>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
