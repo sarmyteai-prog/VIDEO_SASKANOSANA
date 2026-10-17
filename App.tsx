@@ -911,10 +911,10 @@ export const App: React.FC = () => {
         }
       } else if (e.key === 'ArrowLeft' || e.key === 'j' || e.key === 'J') {
         e.preventDefault();
-        stepSeconds(-5);
+        stepSeconds(-1);
       } else if (e.key === 'ArrowRight' || e.key === 'l' || e.key === 'L') {
         e.preventDefault();
-        stepSeconds(5);
+        stepSeconds(1);
       } else if (e.key === 'c' || e.key === 'C' || e.key === '/') {
         e.preventDefault();
         commentInputRef.current?.focus();
@@ -1830,8 +1830,8 @@ export const App: React.FC = () => {
                       aria-valuetext={formatSMPTE(currentTime)}
                       tabIndex={0}
                       onKeyDown={e => {
-                        if (e.key === 'ArrowLeft') stepSeconds(-5);
-                        if (e.key === 'ArrowRight') stepSeconds(5);
+                        if (e.key === 'ArrowLeft') stepSeconds(-1);
+                        if (e.key === 'ArrowRight') stepSeconds(1);
                       }}
                       className="relative h-3 w-full bg-[#192B42] rounded-full cursor-pointer flex items-center"
                       onClick={e => {
@@ -1935,21 +1935,21 @@ export const App: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => stepSeconds(-5)}
-                        aria-label="Atpakaļ 5 sekundes"
+                        onClick={() => stepSeconds(-1)}
+                        aria-label="Atpakaļ 1 sekunde"
                         className="min-h-[38px] min-w-[42px] px-2.5 py-1.5 rounded-lg bg-[#162740] hover:bg-[#1F3556] text-[#CBD5E1] hover:text-white font-mono-tc font-bold cursor-pointer ui-fast"
-                        title="Atpakaļ 5 sekundes (← vai J)"
+                        title="Atpakaļ 1 sekunde (← vai J)"
                       >
-                        -5s
+                        -1s
                       </button>
                       <button
                         type="button"
-                        onClick={() => stepSeconds(5)}
-                        aria-label="Uz priekšu 5 sekundes"
+                        onClick={() => stepSeconds(1)}
+                        aria-label="Uz priekšu 1 sekunde"
                         className="min-h-[38px] min-w-[42px] px-2.5 py-1.5 rounded-lg bg-[#162740] hover:bg-[#1F3556] text-[#CBD5E1] hover:text-white font-mono-tc font-bold cursor-pointer ui-fast"
-                        title="Uz priekšu 5 sekundes (→ vai L)"
+                        title="Uz priekšu 1 sekunde (→ vai L)"
                       >
-                        +5s
+                        +1s
                       </button>
                       <button
                         type="button"
@@ -2819,7 +2819,7 @@ export const App: React.FC = () => {
                     <kbd className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono font-bold">O</kbd>
                   </div>
                   <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                    <span className="text-slate-500 dark:text-slate-400">+/- 5 sekundes</span>
+                    <span className="text-slate-500 dark:text-slate-400">+/- 1 sekunde</span>
                     <kbd className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[11px] font-mono font-bold">← / →</kbd>
                   </div>
                   <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
