@@ -2493,7 +2493,7 @@ export const App: React.FC = () => {
                   return (
                     <div
                       key={c.id}
-                      className={`group px-3.5 py-3 ui-fast flex items-start gap-2.5 border-l-4 ${
+                      className={`group px-3.5 py-3 ui-fast flex flex-col gap-2 border-l-4 ${
                         c.resolved
                           ? isDark
                             ? 'border-l-[#10B981]/50 bg-[#0B1422]/40 opacity-75'
@@ -2515,34 +2515,84 @@ export const App: React.FC = () => {
                                 : 'border-l-transparent hover:bg-[#E8EFF3]'
                       }`}
                     >
-                      {/* Clickable Timecode Pill (MM:SS or Cut Range) */}
-                      <button
-                        type="button"
-                        onClick={() => seekToSeconds(c.seconds, c.id)}
-                        aria-label={`Pāriet uz laika kodu ${tcDisplay}`}
-                        className={`min-h-[38px] px-2.5 py-1 rounded-xl font-mono-tc text-xs font-extrabold shrink-0 cursor-pointer ui-fast border flex items-center gap-1.5 ${
-                          c.resolved
-                            ? isDark
-                              ? 'bg-[#162740]/60 border-[#243B56] text-[#10B981]'
-                              : 'bg-[#E8EFF3] border-[#B2C7D4] text-[#059669]'
-                            : isCutComment
-                              ? 'bg-rose-600 hover:bg-rose-700 border-rose-400 text-white shadow-xs'
-                            : isVOComment
-                              ? 'bg-amber-500 hover:bg-amber-400 border-amber-300 text-black font-extrabold shadow-xs'
-                              : 'bg-[#0E7C86] hover:bg-[#096169] border-[#2DD4BF]/40 text-white shadow-2xs'
-                        }`}
-                        title={`Pāriet uz ${tcDisplay} (${c.seconds} sek.)`}
-                      >
-                        <span>{tcDisplay}</span>
-                        {cutDiffSec !== null && (
-                          <span className="px-1.5 py-0.5 rounded-md bg-black/40 text-[10px] font-extrabold font-mono-tc">
-                            -{cutDiffSec}s
-                          </span>
-                        )}
-                      </button>
+                      {/* Top Header Row: Timecode Pill on Left, Actions on Right */}
+                      <div className="flex items-center justify-between gap-2 w-full">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => seekToSeconds(c.seconds, c.id)}
+                            aria-label={`Pāriet uz laika kodu ${tcDisplay}`}
+                            className={`min-h-[32px] px-2.5 py-1 rounded-xl font-mono-tc text-xs font-extrabold shrink-0 cursor-pointer ui-fast border flex items-center gap-1.5 ${
+                              c.resolved
+                                ? isDark
+                                  ? 'bg-[#162740]/60 border-[#243B56] text-[#10B981]'
+                                  : 'bg-[#E8EFF3] border-[#B2C7D4] text-[#059669]'
+                                : isCutComment
+                                  ? 'bg-rose-600 hover:bg-rose-700 border-rose-400 text-white shadow-xs'
+                                : isVOComment
+                                  ? 'bg-amber-500 hover:bg-amber-400 border-amber-300 text-black font-extrabold shadow-xs'
+                                  : 'bg-[#0E7C86] hover:bg-[#096169] border-[#2DD4BF]/40 text-white shadow-2xs'
+                            }`}
+                            title={`Pāriet uz ${tcDisplay} (${c.seconds} sek.)`}
+                          >
+                            <span>{tcDisplay}</span>
+                            {cutDiffSec !== null && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-black/40 text-[10px] font-extrabold font-mono-tc">
+                                -{cutDiffSec}s
+                              </span>
+                            )}
+                          </button>
 
-                      {/* Comment Text or Inline Edit */}
-                      <div className="flex-1 min-w-0 pt-1">
+                          {isVOComment && (
+                            (() => {
+                              const cleanText = c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '');
+                              const durSec = estimateVoDurationSec(cleanText);
+                              if (durSec <= 0) return null;
+                              return (
+                                <span className="text-[11px] font-mono-tc font-bold text-amber-600 dark:text-amber-400">
+                                  (~{durSec}s)
+                                </span>
+                              );
+                            })()
+                          )}
+                        </div>
+
+                        {/* Edit & Delete Actions */}
+                        {editingCommentId !== c.id && (
+                          <div className="flex items-center gap-0.5 opacity-80 sm:opacity-40 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 ui-fast shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCommentId(c.id);
+                                setEditingCommentText(c.text);
+                              }}
+                              aria-label={`Rediģēt komentāru pie ${tcDisplay}`}
+                              className={`min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer ${
+                                isDark ? 'text-[#9FB3C8] hover:text-white' : 'text-[#2C4A5E] hover:text-[#002C37]'
+                              }`}
+                              title="Rediģēt komentāru"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteComment(c.id)}
+                              aria-label={`Dzēst komentāru pie ${tcDisplay}`}
+                              className="min-w-[32px] min-h-[32px] flex items-center justify-center rounded-lg text-rose-500 dark:text-rose-400 hover:bg-rose-500/15 cursor-pointer"
+                              title="Dzēst komentāru"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                              </svg>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Main Text Content: FULL WIDTH ZEM TC AR RIND KOPĀM (whitespace-pre-wrap) */}
+                      <div className="w-full">
                         {editingCommentId === c.id ? (
                           <div className="flex flex-col gap-2 w-full">
                             <label htmlFor={`edit-comment-${c.id}`} className="sr-only">Rediģēt tekstu</label>
@@ -2596,9 +2646,9 @@ export const App: React.FC = () => {
                             </div>
                           </div>
                         ) : (
-                          <p
+                          <div
                             onClick={() => seekToSeconds(c.seconds, c.id)}
-                            className={`max-w-[62ch] text-xs sm:text-sm leading-relaxed break-words cursor-pointer ${
+                            className={`text-xs sm:text-sm leading-relaxed whitespace-pre-wrap break-words cursor-pointer ${
                               c.resolved
                                 ? 'line-through opacity-75'
                                 : isCutComment
@@ -2616,65 +2666,19 @@ export const App: React.FC = () => {
                           >
                             {c.text.trim().toUpperCase().startsWith('CUT') ? (
                               <>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-rose-600 text-white font-mono-tc text-[10px] font-extrabold mr-1.5 shadow-2xs tracking-wide">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-rose-600 text-white font-mono-tc text-[10px] font-extrabold mr-1.5 shadow-2xs tracking-wide align-middle">
                                   CUT
                                 </span>
                                 <span>{c.text.trim().replace(/^CUT\s*/i, '')}</span>
                               </>
                             ) : isVOComment ? (
-                              (() => {
-                                const cleanText = c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '') || 'Voice-Over';
-                                const durSec = estimateVoDurationSec(cleanText);
-                                return (
-                                  <span className="inline-flex items-baseline gap-1.5 flex-wrap">
-                                    {durSec > 0 && (
-                                      <span className="text-[11px] font-mono-tc font-bold text-amber-600 dark:text-amber-400">
-                                        (~{durSec}s)
-                                      </span>
-                                    )}
-                                    <span>{cleanText}</span>
-                                  </span>
-                                );
-                              })()
+                              c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '') || 'Voice-Over'
                             ) : (
                               c.text
                             )}
-                          </p>
+                          </div>
                         )}
                       </div>
-
-                      {/* Edit & Delete Actions (Accessible on Touch, Keyboard Focus-Within, and Hover) */}
-                      {editingCommentId !== c.id && (
-                        <div className="flex items-center gap-0.5 opacity-80 sm:opacity-40 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 ui-fast shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingCommentId(c.id);
-                              setEditingCommentText(c.text);
-                            }}
-                            aria-label={`Rediģēt komentāru pie ${tcDisplay}`}
-                            className={`min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer ${
-                              isDark ? 'text-[#9FB3C8] hover:text-white' : 'text-[#2C4A5E] hover:text-[#002C37]'
-                            }`}
-                            title="Rediģēt komentāru"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                            </svg>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteComment(c.id)}
-                            aria-label={`Dzēst komentāru pie ${tcDisplay}`}
-                            className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-rose-500 dark:text-rose-400 hover:bg-rose-500/15 cursor-pointer"
-                            title="Dzēst komentāru"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                            </svg>
-                          </button>
-                        </div>
-                      )}
                     </div>
                   );
                 })
