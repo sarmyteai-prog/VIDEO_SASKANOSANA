@@ -1146,7 +1146,7 @@ export const App: React.FC = () => {
         const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
         return isCut || !c.text.trim().toUpperCase().startsWith('VO');
       });
-      subtitle = `MONTĀŽAS LABOJUMI UN IZGRIEZUMI`;
+      subtitle = `MONTĀŽAS LABOJUMI`;
     }
 
     if (targetComments.length === 0) {
@@ -1522,7 +1522,6 @@ export const App: React.FC = () => {
                               {cutCount > 0 && <span className="text-rose-400 font-bold">{cutCount} CUT</span>}
                               {sessionVideos[p.id]?.objectUrl ? (
                                 <span className="text-emerald-400 font-bold flex items-center gap-0.5">
-                                  <span>🎬</span>
                                   <span className="truncate max-w-[90px]">{sessionVideos[p.id]?.fileName || p.videoFileName}</span>
                                 </span>
                               ) : p.videoFileName ? (
@@ -2259,7 +2258,7 @@ export const App: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setListFilter('all')}
-                    className={`px-2 py-1 rounded-lg ui-fast cursor-pointer ${
+                    className={`px-2.5 py-1 rounded-lg ui-fast cursor-pointer ${
                       listFilter === 'all'
                         ? isDark ? 'bg-[#162740] text-[#2DD4BF] shadow-xs' : 'bg-white text-[#002C37] shadow-xs'
                         : 'opacity-70 hover:opacity-100'
@@ -2269,32 +2268,30 @@ export const App: React.FC = () => {
                   </button>
                   <button
                     type="button"
+                    onClick={() => setListFilter('edits')}
+                    className={`px-2.5 py-1 rounded-lg ui-fast cursor-pointer ${
+                      listFilter === 'edits'
+                        ? isDark ? 'bg-[#162740] text-[#2DD4BF] shadow-xs font-extrabold' : 'bg-white text-[#002C37] shadow-xs font-extrabold'
+                        : 'opacity-75 hover:opacity-100'
+                    }`}
+                  >
+                    LABOJUMI ({editCommentsCount})
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setListFilter('vo')}
-                    className={`px-2 py-1 rounded-lg ui-fast cursor-pointer flex items-center gap-1 ${
+                    className={`px-2.5 py-1 rounded-lg ui-fast cursor-pointer ${
                       listFilter === 'vo'
                         ? 'bg-amber-500 text-black shadow-xs font-extrabold'
                         : 'text-amber-500 dark:text-amber-400 opacity-75 hover:opacity-100'
                     }`}
                   >
-                    <span>🎙 VO</span>
-                    <span>({voCommentsCount})</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setListFilter('edits')}
-                    className={`px-2 py-1 rounded-lg ui-fast cursor-pointer flex items-center gap-1 ${
-                      listFilter === 'edits'
-                        ? 'bg-rose-600 text-white shadow-xs font-extrabold'
-                        : 'text-rose-500 dark:text-rose-400 opacity-75 hover:opacity-100'
-                    }`}
-                  >
-                    <span>✂ CUT</span>
-                    <span>({editCommentsCount})</span>
+                    VO ({voCommentsCount})
                   </button>
                 </div>
               </div>
 
-              {/* Action Buttons: 2 Dedicated Rows (Row 1: Copy to Clipboard, Row 2: Open in Google Doc) */}
+              {/* Action Buttons: 2 Dedicated Rows (Row 1: Copy to Clipboard, Row 2: Open in Google Doc) — Clean text, no emojis / icons */}
               <div className="flex flex-col gap-1.5 w-full">
                 {/* Row 1: Copy to Clipboard */}
                 <div className="grid grid-cols-3 gap-1.5 w-full">
@@ -2309,9 +2306,25 @@ export const App: React.FC = () => {
                           ? 'bg-[#162740] border-[#2DD4BF]/40 text-[#2DD4BF] hover:bg-[#1E3454]'
                           : 'bg-[#EAF1F6] border-[#0E7C86]/40 text-[#0B626B] hover:bg-[#E2ECF2]'
                     }`}
-                    title="Nokopēt visu pilno sarakstu (hronometrāža, izgriezumi, VO un labojumi)"
+                    title="Nokopēt visus ierakstus (hronometrāža, labojumi un VO)"
                   >
-                    <span className="truncate">{copiedMode === 'all' ? 'Nokopēts!' : '📋 Kopēt visu'}</span>
+                    <span className="truncate">{copiedMode === 'all' ? 'Nokopēts!' : 'Kopēt visu'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => copyCommentsMode('edits')}
+                    disabled={comments.length === 0 || editCommentsCount === 0}
+                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
+                      copiedMode === 'edits'
+                        ? 'bg-[#10B981] border-[#10B981] text-white'
+                        : isDark
+                          ? 'bg-[#162740] border-[#243B56] text-[#CBD5E1] hover:text-white hover:bg-[#1E3454]'
+                          : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#E2ECF2]'
+                    }`}
+                    title="Nokopēt montāžas režisoram paredzētos labojumus un piezīmes"
+                  >
+                    <span className="truncate">{copiedMode === 'edits' ? 'Nokopēts!' : 'Kopēt labojumus'}</span>
                   </button>
 
                   <button
@@ -2325,29 +2338,13 @@ export const App: React.FC = () => {
                           ? 'bg-[#1F2317] border-amber-400/50 text-amber-300 hover:bg-[#282F1E]'
                           : 'bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100'
                     }`}
-                    title="Nokopēt TIKAI VO aizkadra tekstus ar laika kodiem (diktoram ierunāšanai)"
+                    title="Nokopēt VO aizkadra tekstus ar laika kodiem (diktoram)"
                   >
-                    <span className="truncate">{copiedMode === 'vo' ? 'Nokopēts!' : '🎙 Kopēt VO'}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => copyCommentsMode('edits')}
-                    disabled={comments.length === 0 || editCommentsCount === 0}
-                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
-                      copiedMode === 'edits'
-                        ? 'bg-rose-600 border-rose-600 text-white'
-                        : isDark
-                          ? 'bg-[#162740] border-[#243B56] text-[#CBD5E1] hover:text-white hover:bg-[#1E3454]'
-                          : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#E2ECF2]'
-                    }`}
-                    title="Nokopēt TIKAI montāžas labojumus un CUT izgriezumus (montāžistam)"
-                  >
-                    <span className="truncate">{copiedMode === 'edits' ? 'Nokopēts!' : '✂ Kopēt CUT'}</span>
+                    <span className="truncate">{copiedMode === 'vo' ? 'Nokopēts!' : 'Kopēt VO'}</span>
                   </button>
                 </div>
 
-                {/* Row 2: 1-Click Export to Google Docs (opens docs.new) */}
+                {/* Row 2: 1-Click Export to Google Docs (opens docs.new) — Pure text, zero icons */}
                 <div className="grid grid-cols-3 gap-1.5 w-full">
                   <button
                     type="button"
@@ -2358,36 +2355,9 @@ export const App: React.FC = () => {
                         ? 'bg-[#142B47] border-[#2D73B4] text-[#70B4FF] hover:bg-[#1A385C] hover:text-white'
                         : 'bg-[#E1EDF8] border-[#93C5FD] text-[#1E40AF] hover:bg-[#D3E4F6]'
                     }`}
-                    title="Nokopēt visu un uzreiz atvērt jaunu Google Doc dokumentu (docs.new)"
+                    title="Eksportēt visu sarakstu uz jaunu Google Doc dokumentu"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                      <polyline points="14 2 14 8 20 8"/>
-                      <line x1="16" y1="13" x2="8" y2="13"/>
-                      <line x1="16" y1="17" x2="8" y2="17"/>
-                    </svg>
                     <span className="truncate">Viss uz Doc</span>
-                  </button>
-
-                  {/* VO UZ DOC — Dedicated 1-Click button requested by user */}
-                  <button
-                    type="button"
-                    onClick={() => exportToGoogleDoc('vo')}
-                    disabled={comments.length === 0 || voCommentsCount === 0}
-                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs text-center ${
-                      isDark
-                        ? 'bg-[#2E2812] border-amber-400 text-amber-300 hover:bg-[#3D3517] ring-1 ring-amber-400/30'
-                        : 'bg-amber-100 border-amber-500 text-amber-950 hover:bg-amber-200 ring-1 ring-amber-500/30'
-                    }`}
-                    title="Nokopēt TIKAI VO tekstus un uzreiz atvērt jaunu Google Doc dokumentu (docs.new)"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                      <polyline points="14 2 14 8 20 8"/>
-                      <line x1="16" y1="13" x2="8" y2="13"/>
-                      <line x1="16" y1="17" x2="8" y2="17"/>
-                    </svg>
-                    <span className="truncate">VO uz Doc</span>
                   </button>
 
                   <button
@@ -2399,15 +2369,23 @@ export const App: React.FC = () => {
                         ? 'bg-[#162740] border-[#243B56] text-[#CBD5E1] hover:text-white hover:bg-[#1E3454]'
                         : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#E2ECF2]'
                     }`}
-                    title="Nokopēt tikai montāžas labojumus un uzreiz atvērt jaunu Google Doc"
+                    title="Eksportēt montāžas režisora labojumus uz jaunu Google Doc"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                      <polyline points="14 2 14 8 20 8"/>
-                      <line x1="16" y1="13" x2="8" y2="13"/>
-                      <line x1="16" y1="17" x2="8" y2="17"/>
-                    </svg>
-                    <span className="truncate">CUT uz Doc</span>
+                    <span className="truncate">Labojumi uz Doc</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => exportToGoogleDoc('vo')}
+                    disabled={comments.length === 0 || voCommentsCount === 0}
+                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs text-center ${
+                      isDark
+                        ? 'bg-[#2E2812] border-amber-400 text-amber-300 hover:bg-[#3D3517] ring-1 ring-amber-400/30'
+                        : 'bg-amber-100 border-amber-500 text-amber-950 hover:bg-amber-200 ring-1 ring-amber-500/30'
+                    }`}
+                    title="Eksportēt VO aizkadra tekstus uz jaunu Google Doc"
+                  >
+                    <span className="truncate">VO uz Doc</span>
                   </button>
                 </div>
               </div>
