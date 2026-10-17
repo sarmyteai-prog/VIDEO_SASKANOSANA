@@ -15,11 +15,24 @@ export interface ProjectItem {
   id: string;
   title: string;
   videoFileName: string | null;
+  videoUrl?: string;
   comments: VideoComment[];
   updatedAt: number;
 }
 
-// Format seconds strictly as MM:SS (e.g., 04:12, 45:09)
+// Pilnais televīzijas SMPTE laika kods (HH:MM:SS:FF pie 25 fps PAL standarta)
+export function formatSMPTE(totalSeconds: number, fps: number = 25): string {
+  if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '00:00:00:00';
+  const hours = Math.floor(totalSeconds / 3600);
+  const remAfterHours = totalSeconds % 3600;
+  const mins = Math.floor(remAfterHours / 60);
+  const secs = Math.floor(remAfterHours % 60);
+  const frames = Math.min(fps - 1, Math.floor((totalSeconds % 1) * fps));
+
+  return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}:${String(frames).padStart(2, '0')}`;
+}
+
+// Īsais formāts MM:SS (ja nepieciešams)
 export function formatMMSS(totalSeconds: number): string {
   if (!Number.isFinite(totalSeconds) || totalSeconds < 0) return '00:00';
   const sec = Math.floor(totalSeconds);
@@ -28,22 +41,45 @@ export function formatMMSS(totalSeconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(remSec).padStart(2, '0')}`;
 }
 
-// Format cut range as "MM:SS – MM:SS"
+// Format cut range as full SMPTE "HH:MM:SS:FF – HH:MM:SS:FF"
 export function formatCutRange(startSec: number, endSec: number): string {
   const s = Math.min(startSec, endSec);
   const e = Math.max(startSec, endSec);
-  return `${formatMMSS(s)} – ${formatMMSS(e)}`;
+  return `${formatSMPTE(s)} – ${formatSMPTE(e)}`;
 }
 
-// Parse MM:SS string into seconds
-export function parseMMSS(tc: string): number | null {
+// Parse SMPTE / MM:SS string into seconds
+export function parseSMPTE(tc: string, fps: number = 25): number | null {
   const clean = tc.trim();
-  const match = clean.match(/^(\d{1,3}):([0-5]\d)$/);
-  if (!match) return null;
-  return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+  // HH:MM:SS:FF
+  const matchFull = clean.match(/^(\d{1,2}):([0-5]\d):([0-5]\d):([0-2]\d)$/);
+  if (matchFull) {
+    return (
+      parseInt(matchFull[1], 10) * 3600 +
+      parseInt(matchFull[2], 10) * 60 +
+      parseInt(matchFull[3], 10) +
+      parseInt(matchFull[4], 10) / fps
+    );
+  }
+  // MM:SS:FF
+  const matchMsf = clean.match(/^([0-5]?\d):([0-5]\d):([0-2]\d)$/);
+  if (matchMsf) {
+    return parseInt(matchMsf[1], 10) * 60 + parseInt(matchMsf[2], 10) + parseInt(matchMsf[3], 10) / fps;
+  }
+  // HH:MM:SS
+  const matchHms = clean.match(/^(\d{1,2}):([0-5]\d):([0-5]\d)$/);
+  if (matchHms) {
+    return parseInt(matchHms[1], 10) * 3600 + parseInt(matchHms[2], 10) * 60 + parseInt(matchHms[3], 10);
+  }
+  // MM:SS
+  const matchMs = clean.match(/^(\d{1,3}):([0-5]\d)$/);
+  if (matchMs) {
+    return parseInt(matchMs[1], 10) * 60 + parseInt(matchMs[2], 10);
+  }
+  return null;
 }
 
-// Aprēķina aptuveno aizkadra balss (VO) ilgumu Artūra Skrastiņa ātram TV runas tempam
+// Aprēķina aptuveno aizkadra balss (VO) ilgumu ātram TV runas tempam
 // Standarts latviešu TV dokumentālistikā: ~15-16 rakstzīmes sekundē vai ~2.4 vārdi sekundē + neliela elpa
 export function estimateVoDurationSec(text: string): number {
   const clean = text.replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '').trim();
@@ -161,7 +197,7 @@ function decodeCommentsFromUrl(encoded: string): VideoComment[] | null {
         id: `shared-${idx}-${Date.now()}`,
         seconds: sec,
         endSeconds: hasCut ? endSec : undefined,
-        timecode: hasCut ? formatCutRange(sec, endSec) : formatMMSS(sec),
+        timecode: hasCut ? formatCutRange(sec, endSec) : formatSMPTE(sec),
         text: String(item[1] || ''),
         resolved: Boolean(item[2]),
         createdAt: Date.now() + idx,
@@ -269,6 +305,8 @@ export const App: React.FC = () => {
   const [activeVideoInput, setActiveVideoInput] = useState<string>(initialParams.rawVideoInput);
   const [localObjectUrl, setLocalObjectUrl] = useState<string | null>(null);
   const [localFileName, setLocalFileName] = useState<string | null>(null);
+  // Multi-Project in-memory video session store: keeps loaded videos per episode so switching episodes switches both video and comments
+  const [sessionVideos, setSessionVideos] = useState<Record<string, { objectUrl?: string; fileName?: string; videoInput?: string }>>({});
   const [showSourcePanel, setShowSourcePanel] = useState<boolean>(false);
   const [isDraggingFile, setIsDraggingFile] = useState<boolean>(false);
 
@@ -390,13 +428,49 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [comments.length]);
 
-  // Switch between episodes / projects
+  // Switch between episodes / projects — switches both video player AND comments together
   const switchProject = (targetId: string) => {
     const target = projects.find(p => p.id === targetId);
     if (!target) return;
+
+    // Pause current video playback
+    if (videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+    }
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setInSeconds(null);
+    setOutSeconds(null);
+    setManualInInput('');
+    setManualOutInput('');
+    setIsEditingIn(false);
+    setIsEditingOut(false);
+    setCommentText('');
+    setVoText('');
+    setVoTimeSec(null);
+    setEditingCommentId(null);
+
     setActiveProjectId(target.id);
     setProjectTitle(target.title);
     setComments(target.comments);
+
+    // Switch video specifically for this episode
+    const targetVid = sessionVideos[target.id];
+    if (targetVid?.objectUrl) {
+      setLocalObjectUrl(targetVid.objectUrl);
+      setLocalFileName(targetVid.fileName || target.videoFileName || null);
+      setActiveVideoInput('');
+    } else if (targetVid?.videoInput || target.videoUrl) {
+      setLocalObjectUrl(null);
+      setLocalFileName(null);
+      setActiveVideoInput(targetVid?.videoInput || target.videoUrl || '');
+    } else {
+      // Episode has no video loaded yet in this session
+      setLocalObjectUrl(null);
+      setLocalFileName(target.videoFileName || null);
+      setActiveVideoInput('');
+    }
+
     try {
       localStorage.setItem('postq_active_project_id', target.id);
     } catch {
@@ -407,6 +481,19 @@ export const App: React.FC = () => {
 
   // Create new project / episode (supports 1 to 8+ projects seamlessly)
   const createNewProject = () => {
+    if (videoRef.current && !videoRef.current.paused) {
+      videoRef.current.pause();
+    }
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setInSeconds(null);
+    setOutSeconds(null);
+    setManualInInput('');
+    setManualOutInput('');
+    setCommentText('');
+    setVoText('');
+    setVoTimeSec(null);
+
     const newId = `proj-${Date.now()}`;
     const newTitle = `${projects.length + 1}. Epizode`;
     const newProject: ProjectItem = {
@@ -421,6 +508,10 @@ export const App: React.FC = () => {
     setActiveProjectId(newId);
     setProjectTitle(newTitle);
     setComments([]);
+    setLocalObjectUrl(null);
+    setLocalFileName(null);
+    setActiveVideoInput('');
+
     persistProjectsToStorage(next);
     try {
       localStorage.setItem('postq_active_project_id', newId);
@@ -436,16 +527,20 @@ export const App: React.FC = () => {
     const next = projects.filter(p => p.id !== idToDelete);
     setProjects(next);
     persistProjectsToStorage(next);
+
+    // Clean up session video
+    if (sessionVideos[idToDelete]?.objectUrl) {
+      URL.revokeObjectURL(sessionVideos[idToDelete].objectUrl!);
+      setSessionVideos(prev => {
+        const copy = { ...prev };
+        delete copy[idToDelete];
+        return copy;
+      });
+    }
+
     if (activeProjectId === idToDelete) {
       const nextActive = next[0];
-      setActiveProjectId(nextActive.id);
-      setProjectTitle(nextActive.title);
-      setComments(nextActive.comments);
-      try {
-        localStorage.setItem('postq_active_project_id', nextActive.id);
-      } catch {
-        // ignore
-      }
+      switchProject(nextActive.id);
     }
     setLiveAnnouncement('Epizode izdzēsta.');
   };
@@ -530,9 +625,9 @@ export const App: React.FC = () => {
     const vid = videoRef.current;
     const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
     setInSeconds(nowSec);
-    setManualInInput(formatMMSS(nowSec));
+    setManualInInput(formatSMPTE(nowSec));
     setIsEditingIn(false);
-    setLiveAnnouncement(`In sākums uzlikts: ${formatMMSS(nowSec)}`);
+    setLiveAnnouncement(`In sākums uzlikts: ${formatSMPTE(nowSec)}`);
   };
 
   const setOutToCurrent = () => {
@@ -612,7 +707,7 @@ export const App: React.FC = () => {
     const newComment: VideoComment = {
       id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       seconds: nowSec,
-      timecode: formatMMSS(nowSec),
+      timecode: formatSMPTE(nowSec),
       text: fullVoText,
       resolved: false,
       createdAt: Date.now(),
@@ -622,7 +717,7 @@ export const App: React.FC = () => {
     setVoText('');
     setVoTimeSec(null);
     setActiveCommentId(newComment.id);
-    setLiveAnnouncement(`VO pie ${formatMMSS(nowSec)} pievienots!`);
+    setLiveAnnouncement(`VO pie ${formatSMPTE(nowSec)} pievienots!`);
 
     if (resumeAfterSubmit && videoRef.current) {
       videoRef.current.play().catch(() => {});
@@ -646,7 +741,7 @@ export const App: React.FC = () => {
       setCommentText('');
     }
     voInputRef.current?.focus();
-    setLiveAnnouncement(`VO josla aktivizēta pie ${formatMMSS(nowSec)}`);
+    setLiveAnnouncement(`VO josla aktivizēta pie ${formatSMPTE(nowSec)}`);
   };
 
   // Load comments when video source changes
@@ -747,13 +842,13 @@ export const App: React.FC = () => {
       const nowSec = Math.floor(vid.currentTime);
       if (inSeconds === null) {
         setInSeconds(nowSec);
-        setManualInInput(formatMMSS(nowSec));
+        setManualInInput(formatSMPTE(nowSec));
       }
-      setLiveAnnouncement(`Video nopauzēts pie ${formatMMSS(nowSec)}.`);
+      setLiveAnnouncement(`Video nopauzēts pie ${formatSMPTE(nowSec)}.`);
     } else if (inSeconds === null && val.trim().length > 0) {
       const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
       setInSeconds(nowSec);
-      setManualInInput(formatMMSS(nowSec));
+      setManualInInput(formatSMPTE(nowSec));
     }
 
     if (val.length === 0 && outSeconds === null) {
@@ -773,13 +868,13 @@ export const App: React.FC = () => {
       setWasAutoPaused(true);
       if (inSeconds === null) {
         setInSeconds(nowSec);
-        setManualInInput(formatMMSS(nowSec));
+        setManualInInput(formatSMPTE(nowSec));
       }
-      setLiveAnnouncement(`Video nopauzēts pie ${formatMMSS(nowSec)}.`);
+      setLiveAnnouncement(`Video nopauzēts pie ${formatSMPTE(nowSec)}.`);
     } else if (inSeconds === null && !useGdriveEmbed) {
       const nowSec = Math.floor(vid ? vid.currentTime : currentTime);
       setInSeconds(nowSec);
-      setManualInInput(formatMMSS(nowSec));
+      setManualInInput(formatSMPTE(nowSec));
     }
   };
 
@@ -789,15 +884,15 @@ export const App: React.FC = () => {
     const trimmed = commentText.trim();
     if (!trimmed) return;
 
-    let inSec = inSeconds !== null ? inSeconds : Math.floor(videoRef.current?.currentTime ?? currentTime);
+    let inSec = inSeconds !== null ? inSeconds : (videoRef.current?.currentTime ?? currentTime);
     if (isEditingIn || (useGdriveEmbed && manualInInput)) {
-      const parsedIn = parseMMSS(manualInInput);
+      const parsedIn = parseSMPTE(manualInInput);
       if (parsedIn !== null) inSec = parsedIn;
     }
 
     let outSec: number | null = outSeconds;
     if (outSeconds !== null && (isEditingOut || manualOutInput)) {
-      const parsedOut = parseMMSS(manualOutInput);
+      const parsedOut = parseSMPTE(manualOutInput);
       if (parsedOut !== null) outSec = parsedOut;
     }
 
@@ -813,7 +908,7 @@ export const App: React.FC = () => {
       tcFormatted = formatCutRange(realStart, realEnd);
     } else {
       targetSec = inSec;
-      tcFormatted = formatMMSS(inSec);
+      tcFormatted = formatSMPTE(inSec);
     }
 
     const newComment: VideoComment = {
@@ -850,7 +945,7 @@ export const App: React.FC = () => {
     if (commentId) setActiveCommentId(commentId);
     setCurrentTime(sec);
     setInSeconds(sec);
-    setManualInInput(formatMMSS(sec));
+    setManualInInput(formatSMPTE(sec));
     setOutSeconds(null);
     setManualOutInput('');
 
@@ -858,7 +953,7 @@ export const App: React.FC = () => {
       videoRef.current.currentTime = sec;
       videoRef.current.pause();
     }
-    setLiveAnnouncement(`Pārlēkts uz laika kodu ${formatMMSS(sec)}.`);
+    setLiveAnnouncement(`Pārlēkts uz laika kodu ${formatSMPTE(sec)}.`);
   };
 
   // Toggle resolved status ("Atzīmēt kā izlabotu")
@@ -941,7 +1036,7 @@ export const App: React.FC = () => {
         const clean = c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '');
         return acc + estimateVoDurationSec(clean);
       }, 0);
-      subtitle = `AIZKADRA BALSS (VO) — ${targetComments.length} fragmenti | Kopā: ~${formatVoDuration(totalVoSeconds)} (Skrastiņa temps)`;
+      subtitle = `AIZKADRA BALSS (VO) — ${targetComments.length} fragmenti | Kopā: ~${formatVoDuration(totalVoSeconds)}`;
     } else if (mode === 'edits') {
       targetComments = listSource.filter(c => {
         const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
@@ -959,20 +1054,21 @@ export const App: React.FC = () => {
       projectTitle,
       subtitle,
       mode !== 'vo' && duration > 0 && totalCutSeconds > 0
-        ? `Sākotnējais ilgums: ${formatMMSS(duration)} | Izgriezts: -${formatMMSS(totalCutSeconds)} (-${totalCutSeconds}s) | Gala raidījums: ${formatMMSS(finalDuration)}`
+        ? `Sākotnējais ilgums: ${formatSMPTE(duration)} | Izgriezts: -${formatSMPTE(totalCutSeconds)} (-${totalCutSeconds}s) | Gala raidījums: ${formatSMPTE(finalDuration)}`
         : '',
       `──────────────────────────────`,
       ...targetComments.map(c => {
         const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
         const isVO = !isCut && c.text.trim().toUpperCase().startsWith('VO');
         const prefix = c.resolved ? '[OK] ' : '';
+        const tcStr = c.endSeconds && c.endSeconds > c.seconds ? formatCutRange(c.seconds, c.endSeconds) : formatSMPTE(c.seconds);
         if (isVO) {
           const cleanText = c.text.trim().replace(/^VO(?:\s*\([^)]*\))?:?\s*/i, '');
           const durSec = estimateVoDurationSec(cleanText);
           const durStr = durSec > 0 ? ` (~${formatVoDuration(durSec)})` : '';
-          return `${prefix}${c.timecode} — VO${durStr}: ${cleanText}`;
+          return `${prefix}${tcStr} — VO${durStr}: ${cleanText}`;
         }
-        return `${prefix}${c.timecode} — ${c.text}`;
+        return `${prefix}${tcStr} — ${c.text}`;
       }),
     ].filter(Boolean);
 
@@ -1009,8 +1105,15 @@ export const App: React.FC = () => {
     navigator.clipboard.writeText(text);
     window.open('https://docs.new', '_blank');
 
-    setLiveAnnouncement('Saraksts nokopēts! Jaunajā Google Doc dokumentā nospiediet Ctrl + V.');
-    alert('Saraksts ir nokopēts starpliktuvē!\n\nTikko jaunā cilnē atvērts jauns Google Doc. Tur vienkārši nospiediet Ctrl + V (Paste), lai ievietotu labojumus.');
+    const desc =
+      mode === 'vo'
+        ? 'Tikai VO teksti nokopēti!'
+        : mode === 'edits'
+          ? 'Montāžas labojumi nokopēti!'
+          : 'Pilns labojumu saraksts nokopēts!';
+
+    setLiveAnnouncement(`${desc} Jaunajā Google Doc dokumentā nospiediet Ctrl + V.`);
+    alert(`${desc}\n\nTikko jaunā cilnē atvērts jauns Google Doc (docs.new).\nTur vienkārši nospiediet Ctrl + V (Paste), lai ievietotu labojumus.`);
   };
 
   const copyCommentsAsText = () => copyCommentsMode('all');
@@ -1018,23 +1121,54 @@ export const App: React.FC = () => {
 
   const handleApplyVideoSource = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!videoInputUrl.trim()) return;
+    const cleanUrl = videoInputUrl.trim();
+    if (!cleanUrl) return;
+
+    setSessionVideos(prev => ({
+      ...prev,
+      [activeProjectId]: {
+        videoInput: cleanUrl,
+      },
+    }));
+
     setLocalObjectUrl(null);
     setLocalFileName(null);
     setStreamError(null);
     setUseGdriveEmbed(false);
-    setActiveVideoInput(videoInputUrl.trim());
+    setActiveVideoInput(cleanUrl);
     setShowSourcePanel(false);
+
+    setProjects(prevProjects => {
+      const next = prevProjects.map(p =>
+        p.id === activeProjectId
+          ? { ...p, videoUrl: cleanUrl, updatedAt: Date.now() }
+          : p
+      );
+      persistProjectsToStorage(next);
+      return next;
+    });
+
     setLiveAnnouncement('Jauns video avots ielādēts.');
   };
 
   const loadLocalFile = (file: File) => {
-    if (localObjectUrl) {
-      URL.revokeObjectURL(localObjectUrl);
+    const prevVid = sessionVideos[activeProjectId];
+    if (prevVid?.objectUrl) {
+      URL.revokeObjectURL(prevVid.objectUrl);
     }
     const objUrl = URL.createObjectURL(file);
+
+    setSessionVideos(prev => ({
+      ...prev,
+      [activeProjectId]: {
+        objectUrl: objUrl,
+        fileName: file.name,
+      },
+    }));
+
     setLocalObjectUrl(objUrl);
     setLocalFileName(file.name);
+    setActiveVideoInput('');
 
     const cleanFileName = file.name.replace(/\.[^/.]+$/, '');
     const updatedTitle = (!projectTitle || projectTitle.startsWith('1. Epizode') || projectTitle === 'Video labošana')
@@ -1055,7 +1189,7 @@ export const App: React.FC = () => {
     setStreamError(null);
     setUseGdriveEmbed(false);
     setShowSourcePanel(false);
-    setLiveAnnouncement(`Ielādēts lokālais fails ${file.name}.`);
+    setLiveAnnouncement(`Ielādēts video "${file.name}" epizodei "${updatedTitle}".`);
   };
 
   const handleLocalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1089,18 +1223,44 @@ export const App: React.FC = () => {
     setCurrentTime(nextSec);
     if (inSeconds !== null) {
       setInSeconds(Math.floor(nextSec));
-      setManualInInput(formatMMSS(nextSec));
+      setManualInInput(formatSMPTE(nextSec));
     }
   };
 
+  const [listFilter, setListFilter] = useState<'all' | 'vo' | 'edits'>('all');
+
   const filteredComments = useMemo(() => {
-    if (filterMode === 'open') return comments.filter(c => !c.resolved);
-    if (filterMode === 'resolved') return comments.filter(c => c.resolved);
+    if (listFilter === 'vo') {
+      return comments.filter(c => {
+        const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+        return !isCut && c.text.trim().toUpperCase().startsWith('VO');
+      });
+    }
+    if (listFilter === 'edits') {
+      return comments.filter(c => {
+        const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+        return isCut || !c.text.trim().toUpperCase().startsWith('VO');
+      });
+    }
     return comments;
-  }, [comments, filterMode]);
+  }, [comments, listFilter]);
+
+  const voCommentsCount = useMemo(() => {
+    return comments.filter(c => {
+      const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+      return !isCut && c.text.trim().toUpperCase().startsWith('VO');
+    }).length;
+  }, [comments]);
+
+  const editCommentsCount = useMemo(() => {
+    return comments.filter(c => {
+      const isCut = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
+      return isCut || !c.text.trim().toUpperCase().startsWith('VO');
+    }).length;
+  }, [comments]);
 
   const resolvedCount = useMemo(() => comments.filter(c => c.resolved).length, [comments]);
-  const displayTimecode = inSeconds !== null ? formatMMSS(inSeconds) : formatMMSS(currentTime);
+  const displayTimecode = inSeconds !== null ? formatSMPTE(inSeconds) : formatSMPTE(currentTime);
   const progressRatio = duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0;
   const hasLoadedVideo = resolvedSource.type !== 'empty';
 
@@ -1253,8 +1413,14 @@ export const App: React.FC = () => {
                             <div className="text-[10px] opacity-75 mt-0.5 flex items-center gap-1.5 font-mono-tc flex-wrap">
                               <span>{p.comments.length} piezīmes</span>
                               {cutCount > 0 && <span className="text-rose-400 font-bold">{cutCount} CUT</span>}
-                              {voCount > 0 && <span className="text-amber-400 font-bold">{voCount} VO</span>}
-                              {p.videoFileName && <span className="truncate max-w-[100px] opacity-60">· {p.videoFileName}</span>}
+                              {sessionVideos[p.id]?.objectUrl ? (
+                                <span className="text-emerald-400 font-bold flex items-center gap-0.5">
+                                  <span>🎬</span>
+                                  <span className="truncate max-w-[90px]">{sessionVideos[p.id]?.fileName || p.videoFileName}</span>
+                                </span>
+                              ) : p.videoFileName ? (
+                                <span className="truncate max-w-[100px] opacity-60">· {p.videoFileName}</span>
+                              ) : null}
                             </div>
                           </div>
 
@@ -1455,10 +1621,14 @@ export const App: React.FC = () => {
                     </div>
 
                     <h2 className="text-xl sm:text-2xl font-extrabold text-white mb-2 text-balance">
-                      Augšupielādē video
+                      {localFileName ? `Ielādē video: ${localFileName}` : `Augšupielādē video (${activeProject.title})`}
                     </h2>
-                    <p className="max-w-[44ch] text-xs sm:text-sm text-[#9FB3C8] mb-6 leading-relaxed">
-                      Ievelc savu <strong>.mp4</strong> vai <strong>.mov</strong> failu šeit vai noklikšķini, lai atvērtu no datora:
+                    <p className="max-w-[48ch] text-xs sm:text-sm text-[#9FB3C8] mb-6 leading-relaxed">
+                      {localFileName ? (
+                        <>Šai epizodei piesaistīts fails <strong className="text-[#2DD4BF] font-mono-tc">{localFileName}</strong>. Ievelc to šeit vai izvēlies no datora:</>
+                      ) : (
+                        <>Ievelc savu <strong>.mp4</strong> vai <strong>.mov</strong> failu šeit vai noklikšķini, lai atvērtu no datora:</>
+                      )}
                     </p>
 
                     <button
@@ -1474,7 +1644,7 @@ export const App: React.FC = () => {
                         <polyline points="17 8 12 3 7 8"/>
                         <line x1="12" y1="3" x2="12" y2="15"/>
                       </svg>
-                      <span>Izvēlēties video failu no datora</span>
+                      <span>{localFileName ? `Atvērt "${localFileName}" no datora` : 'Izvēlēties video failu no datora'}</span>
                     </button>
                   </div>
                 ) : (
@@ -1509,11 +1679,11 @@ export const App: React.FC = () => {
 
                     {/* Liels, skaidrs profesionāls TV Timecode augšējā kreisajā stūrī — tikai TC */}
                     <div
-                      aria-label={`Pašreizējais laika kods ${formatMMSS(currentTime)}`}
+                      aria-label={`Pašreizējais laika kods ${formatSMPTE(currentTime)}`}
                       className="absolute top-3 left-3 sm:top-5 sm:left-5 z-30 pointer-events-none select-none bg-black/85 backdrop-blur-md px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-white/20 shadow-2xl flex items-center justify-center"
                     >
                       <span className="font-mono-tc font-black text-2xl sm:text-3xl tracking-wider text-[#2DD4BF] drop-shadow-lg">
-                        {formatMMSS(currentTime)}
+                        {formatSMPTE(currentTime)}
                       </span>
                     </div>
                   </div>
@@ -1558,7 +1728,7 @@ export const App: React.FC = () => {
                       aria-valuemin={0}
                       aria-valuemax={Math.floor(duration)}
                       aria-valuenow={Math.floor(currentTime)}
-                      aria-valuetext={formatMMSS(currentTime)}
+                      aria-valuetext={formatSMPTE(currentTime)}
                       tabIndex={0}
                       onKeyDown={e => {
                         if (e.key === 'ArrowLeft') stepSeconds(-5);
@@ -1695,17 +1865,17 @@ export const App: React.FC = () => {
 
                     <div className="flex items-center gap-3">
                       <div className="font-mono-tc font-bold text-xs sm:text-sm text-[#E8F0F6] flex items-center flex-wrap gap-1.5" aria-label="Pašreizējais laika kods un kopējais garums">
-                        <span className="text-[#2DD4BF]">{formatMMSS(currentTime)}</span>
+                        <span className="text-[#2DD4BF]">{formatSMPTE(currentTime)}</span>
                         <span className="opacity-40 mx-0.5">/</span>
-                        <span className="opacity-80">{formatMMSS(duration)}</span>
+                        <span className="opacity-80">{formatSMPTE(duration)}</span>
                         {totalCutSeconds > 0 && (
                           <span
                             className="ml-1 sm:ml-2 px-2 py-0.5 rounded-md bg-rose-950/80 border border-rose-500/50 text-rose-300 text-[11px] font-bold flex items-center gap-1.5"
-                            title={`Kopā izgriezts -${formatMMSS(totalCutSeconds)} (-${totalCutSeconds}s). Gala raidījuma garums: ${formatMMSS(finalDuration)}`}
+                            title={`Kopā izgriezts -${formatSMPTE(totalCutSeconds)} (-${totalCutSeconds}s). Gala raidījuma garums: ${formatSMPTE(finalDuration)}`}
                           >
-                            <span className="text-rose-400">-{formatMMSS(totalCutSeconds)}</span>
+                            <span className="text-rose-400">-{formatSMPTE(totalCutSeconds)}</span>
                             <span className="opacity-40">|</span>
-                            <span className="text-white">Gala: {formatMMSS(finalDuration)}</span>
+                            <span className="text-white">Gala: {formatSMPTE(finalDuration)}</span>
                           </span>
                         )}
                       </div>
@@ -1748,8 +1918,8 @@ export const App: React.FC = () => {
                         onBlur={() => setIsEditingIn(false)}
                         onKeyDown={e => e.key === 'Enter' && setIsEditingIn(false)}
                         autoFocus
-                        placeholder="MM:SS"
-                        className="w-16 bg-transparent font-mono-tc font-extrabold text-white text-center focus:outline-hidden text-sm"
+                        placeholder="00:00:00:00"
+                        className="w-24 bg-transparent font-mono-tc font-extrabold text-white text-center focus:outline-hidden text-sm"
                       />
                     </div>
                   ) : (
@@ -1759,7 +1929,7 @@ export const App: React.FC = () => {
                         if (inSeconds === null) {
                           setInToCurrent();
                         } else {
-                          setManualInInput(formatMMSS(inSeconds));
+                          setManualInInput(formatSMPTE(inSeconds));
                           setIsEditingIn(true);
                         }
                       }}
@@ -1773,7 +1943,7 @@ export const App: React.FC = () => {
                       title="Sākums (In / I taustiņš). Klikšķini, lai rediģētu."
                     >
                       <span className="text-[10px] uppercase font-bold opacity-75">In:</span>
-                      <span>{inSeconds !== null ? formatMMSS(inSeconds) : formatMMSS(currentTime)}</span>
+                      <span>{inSeconds !== null ? formatSMPTE(inSeconds) : formatSMPTE(currentTime)}</span>
                     </button>
                   )}
 
@@ -1791,7 +1961,7 @@ export const App: React.FC = () => {
                     }`}
                     title={
                       inSeconds !== null
-                        ? `Izgriezt no ${formatMMSS(inSeconds)} līdz šim brīdim (Out / O taustiņš) — uzreiz saglabā CUT!`
+                        ? `Izgriezt no ${formatSMPTE(inSeconds)} līdz šim brīdim (Out / O taustiņš) — uzreiz saglabā CUT!`
                         : 'Vispirms nospiediet IN sākuma punktu (I taustiņš)'
                     }
                   >
@@ -1835,7 +2005,7 @@ export const App: React.FC = () => {
                         const nowSec = Math.floor(vid.currentTime);
                         if (inSeconds === null) {
                           setInSeconds(nowSec);
-                          setManualInInput(formatMMSS(nowSec));
+                          setManualInInput(formatSMPTE(nowSec));
                         }
                       }
                     }
@@ -1843,7 +2013,7 @@ export const App: React.FC = () => {
                   onChange={handleCommentInputChange}
                   placeholder={
                     outSeconds !== null
-                      ? `Ko izgriezt vai saīsināt no ${formatMMSS(inSeconds ?? currentTime)} līdz ${formatMMSS(outSeconds)}?`
+                      ? `Ko izgriezt vai saīsināt no ${formatSMPTE(inSeconds ?? currentTime)} līdz ${formatSMPTE(outSeconds)}?`
                       : 'Sāc rakstīt komentāru vai režisora piezīmi (Enter — saglabāt, Shift+Enter — jauna rinda)...'
                   }
                   className={`min-h-[50px] flex-1 px-4 py-2.5 rounded-xl border text-sm font-medium ui-fast resize-y ${
@@ -1943,7 +2113,7 @@ export const App: React.FC = () => {
                 <div>
                   {voText.trim().length > 0 && (
                     <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-semibold animate-fade-in">
-                      <span>Skrastiņa balss ilgums:</span>
+                      <span>Aizkadra balss (VO) ilgums:</span>
                       <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 font-mono-tc font-bold">
                         ~{formatVoDuration(estimateVoDurationSec(voText))}
                       </span>
@@ -1992,78 +2162,165 @@ export const App: React.FC = () => {
                     {comments.length}
                   </span>
                 </h2>
+
+                {/* Filter View Selector Tabs */}
+                <div className={`flex items-center gap-1 p-0.5 rounded-xl border text-[11px] font-bold ${
+                  isDark ? 'bg-[#0B1422] border-[#1E334A]' : 'bg-[#D5E1E9] border-[#B2C7D4]'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => setListFilter('all')}
+                    className={`px-2 py-1 rounded-lg ui-fast cursor-pointer ${
+                      listFilter === 'all'
+                        ? isDark ? 'bg-[#162740] text-[#2DD4BF] shadow-xs' : 'bg-white text-[#002C37] shadow-xs'
+                        : 'opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    Visi ({comments.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setListFilter('vo')}
+                    className={`px-2 py-1 rounded-lg ui-fast cursor-pointer flex items-center gap-1 ${
+                      listFilter === 'vo'
+                        ? 'bg-amber-500 text-black shadow-xs font-extrabold'
+                        : 'text-amber-500 dark:text-amber-400 opacity-75 hover:opacity-100'
+                    }`}
+                  >
+                    <span>🎙 VO</span>
+                    <span>({voCommentsCount})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setListFilter('edits')}
+                    className={`px-2 py-1 rounded-lg ui-fast cursor-pointer flex items-center gap-1 ${
+                      listFilter === 'edits'
+                        ? 'bg-rose-600 text-white shadow-xs font-extrabold'
+                        : 'text-rose-500 dark:text-rose-400 opacity-75 hover:opacity-100'
+                    }`}
+                  >
+                    <span>✂ CUT</span>
+                    <span>({editCommentsCount})</span>
+                  </button>
+                </div>
               </div>
 
-              {/* 4 Dedicated Export Buttons in a Stable 4-Column Grid (Always visible, never truncated) */}
-              <div className="grid grid-cols-4 gap-1.5 w-full">
-                <button
-                  type="button"
-                  onClick={() => copyCommentsMode('all')}
-                  disabled={comments.length === 0}
-                  className={`min-h-[34px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
-                    copiedMode === 'all'
-                      ? 'bg-[#10B981] border-[#10B981] text-white'
-                      : isDark
-                        ? 'bg-[#162740] border-[#2DD4BF]/40 text-[#2DD4BF] hover:bg-[#1E3454]'
-                        : 'bg-[#EAF1F6] border-[#0E7C86]/40 text-[#0B626B] hover:bg-[#E2ECF2]'
-                  }`}
-                  title="Nokopēt visu pilno sarakstu (hronometrāža, izgriezumi, VO un labojumi)"
-                >
-                  <span className="truncate">{copiedMode === 'all' ? 'Nokopēts!' : 'Kopēt visu'}</span>
-                </button>
+              {/* Action Buttons: 2 Dedicated Rows (Row 1: Copy to Clipboard, Row 2: Open in Google Doc) */}
+              <div className="flex flex-col gap-1.5 w-full">
+                {/* Row 1: Copy to Clipboard */}
+                <div className="grid grid-cols-3 gap-1.5 w-full">
+                  <button
+                    type="button"
+                    onClick={() => copyCommentsMode('all')}
+                    disabled={comments.length === 0}
+                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
+                      copiedMode === 'all'
+                        ? 'bg-[#10B981] border-[#10B981] text-white'
+                        : isDark
+                          ? 'bg-[#162740] border-[#2DD4BF]/40 text-[#2DD4BF] hover:bg-[#1E3454]'
+                          : 'bg-[#EAF1F6] border-[#0E7C86]/40 text-[#0B626B] hover:bg-[#E2ECF2]'
+                    }`}
+                    title="Nokopēt visu pilno sarakstu (hronometrāža, izgriezumi, VO un labojumi)"
+                  >
+                    <span className="truncate">{copiedMode === 'all' ? 'Nokopēts!' : '📋 Kopēt visu'}</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => copyCommentsMode('vo')}
-                  disabled={comments.length === 0}
-                  className={`min-h-[34px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
-                    copiedMode === 'vo'
-                      ? 'bg-amber-500 border-amber-500 text-black'
-                      : isDark
-                        ? 'bg-[#1F2317] border-amber-400/50 text-amber-300 hover:bg-[#282F1E]'
-                        : 'bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100'
-                  }`}
-                  title="Nokopēt TIKAI VO aizkadra tekstus ar laika kodiem (diktoram ierunāšanai)"
-                >
-                  <span className="truncate">{copiedMode === 'vo' ? 'Nokopēts!' : 'Tikai VO'}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => copyCommentsMode('vo')}
+                    disabled={comments.length === 0 || voCommentsCount === 0}
+                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
+                      copiedMode === 'vo'
+                        ? 'bg-amber-500 border-amber-500 text-black'
+                        : isDark
+                          ? 'bg-[#1F2317] border-amber-400/50 text-amber-300 hover:bg-[#282F1E]'
+                          : 'bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100'
+                    }`}
+                    title="Nokopēt TIKAI VO aizkadra tekstus ar laika kodiem (diktoram ierunāšanai)"
+                  >
+                    <span className="truncate">{copiedMode === 'vo' ? 'Nokopēts!' : '🎙 Kopēt VO'}</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => copyCommentsMode('edits')}
-                  disabled={comments.length === 0}
-                  className={`min-h-[34px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
-                    copiedMode === 'edits'
-                      ? 'bg-rose-600 border-rose-600 text-white'
-                      : isDark
+                  <button
+                    type="button"
+                    onClick={() => copyCommentsMode('edits')}
+                    disabled={comments.length === 0 || editCommentsCount === 0}
+                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
+                      copiedMode === 'edits'
+                        ? 'bg-rose-600 border-rose-600 text-white'
+                        : isDark
+                          ? 'bg-[#162740] border-[#243B56] text-[#CBD5E1] hover:text-white hover:bg-[#1E3454]'
+                          : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#E2ECF2]'
+                    }`}
+                    title="Nokopēt TIKAI montāžas labojumus un CUT izgriezumus (montāžistam)"
+                  >
+                    <span className="truncate">{copiedMode === 'edits' ? 'Nokopēts!' : '✂ Kopēt CUT'}</span>
+                  </button>
+                </div>
+
+                {/* Row 2: 1-Click Export to Google Docs (opens docs.new) */}
+                <div className="grid grid-cols-3 gap-1.5 w-full">
+                  <button
+                    type="button"
+                    onClick={() => exportToGoogleDoc('all')}
+                    disabled={comments.length === 0}
+                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs text-center ${
+                      isDark
+                        ? 'bg-[#142B47] border-[#2D73B4] text-[#70B4FF] hover:bg-[#1A385C] hover:text-white'
+                        : 'bg-[#E1EDF8] border-[#93C5FD] text-[#1E40AF] hover:bg-[#D3E4F6]'
+                    }`}
+                    title="Nokopēt visu un uzreiz atvērt jaunu Google Doc dokumentu (docs.new)"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="16" y1="13" x2="8" y2="13"/>
+                      <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                    <span className="truncate">Viss uz Doc</span>
+                  </button>
+
+                  {/* VO UZ DOC — Dedicated 1-Click button requested by user */}
+                  <button
+                    type="button"
+                    onClick={() => exportToGoogleDoc('vo')}
+                    disabled={comments.length === 0 || voCommentsCount === 0}
+                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs text-center ${
+                      isDark
+                        ? 'bg-[#2E2812] border-amber-400 text-amber-300 hover:bg-[#3D3517] ring-1 ring-amber-400/30'
+                        : 'bg-amber-100 border-amber-500 text-amber-950 hover:bg-amber-200 ring-1 ring-amber-500/30'
+                    }`}
+                    title="Nokopēt TIKAI VO tekstus un uzreiz atvērt jaunu Google Doc dokumentu (docs.new)"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="16" y1="13" x2="8" y2="13"/>
+                      <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                    <span className="truncate">VO uz Doc</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => exportToGoogleDoc('edits')}
+                    disabled={comments.length === 0 || editCommentsCount === 0}
+                    className={`min-h-[32px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs text-center ${
+                      isDark
                         ? 'bg-[#162740] border-[#243B56] text-[#CBD5E1] hover:text-white hover:bg-[#1E3454]'
                         : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#E2ECF2]'
-                  }`}
-                  title="Nokopēt TIKAI montāžas labojumus un CUT izgriezumus (montāžistam)"
-                >
-                  <span className="truncate">{copiedMode === 'edits' ? 'Nokopēts!' : 'Labojumi'}</span>
-                </button>
-
-                {/* 1-Click Export to Google Docs */}
-                <button
-                  type="button"
-                  onClick={() => exportToGoogleDoc('all')}
-                  disabled={comments.length === 0}
-                  className={`min-h-[34px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs text-center ${
-                    isDark
-                      ? 'bg-[#142B47] border-[#2D73B4] text-[#70B4FF] hover:bg-[#1A385C] hover:text-white'
-                      : 'bg-[#E1EDF8] border-[#93C5FD] text-[#1E40AF] hover:bg-[#D3E4F6]'
-                  }`}
-                  title="Nokopēt visu un uzreiz atvērt jaunu Google Doc dokumentu (docs.new)"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                    <line x1="16" y1="13" x2="8" y2="13"/>
-                    <line x1="16" y1="17" x2="8" y2="17"/>
-                  </svg>
-                  <span className="truncate">Doc</span>
-                </button>
+                    }`}
+                    title="Nokopēt tikai montāžas labojumus un uzreiz atvērt jaunu Google Doc"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                      <line x1="16" y1="13" x2="8" y2="13"/>
+                      <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                    <span className="truncate">CUT uz Doc</span>
+                  </button>
+                </div>
               </div>
 
               {/* TV Rough Cut Statistics: Total Cut Duration & Final Broadcast Runtime */}
@@ -2076,7 +2333,7 @@ export const App: React.FC = () => {
                   <div>
                     <div className="text-[10px] uppercase font-bold text-rose-400">Izgriežams kopā:</div>
                     <div className="font-extrabold text-xs sm:text-sm text-rose-500">
-                      -{formatMMSS(totalCutSeconds)} <span className="text-[10px] font-normal opacity-75">(-{totalCutSeconds}s)</span>
+                      -{formatSMPTE(totalCutSeconds)} <span className="text-[10px] font-normal opacity-75">(-{totalCutSeconds}s)</span>
                     </div>
                   </div>
 
@@ -2085,7 +2342,7 @@ export const App: React.FC = () => {
                       Gala raidījums:
                     </div>
                     <div className="font-extrabold text-xs sm:text-sm text-[#2DD4BF]">
-                      {formatMMSS(finalDuration)}
+                      {formatSMPTE(finalDuration)}
                     </div>
                   </div>
                 </div>
@@ -2140,6 +2397,9 @@ export const App: React.FC = () => {
                   const isCutComment = Boolean(c.endSeconds && c.endSeconds > c.seconds) || c.text.trim().toUpperCase().startsWith('CUT');
                   const isVOComment = !isCutComment && c.text.trim().toUpperCase().startsWith('VO');
                   const cutDiffSec = c.endSeconds && c.endSeconds > c.seconds ? (c.endSeconds - c.seconds) : null;
+                  const tcDisplay = c.endSeconds && c.endSeconds > c.seconds
+                    ? formatCutRange(c.seconds, c.endSeconds)
+                    : formatSMPTE(c.seconds);
 
                   return (
                     <div
@@ -2170,7 +2430,7 @@ export const App: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => seekToSeconds(c.seconds, c.id)}
-                        aria-label={`Pāriet uz laika kodu ${c.timecode}`}
+                        aria-label={`Pāriet uz laika kodu ${tcDisplay}`}
                         className={`min-h-[38px] px-2.5 py-1 rounded-xl font-mono-tc text-xs font-extrabold shrink-0 cursor-pointer ui-fast border flex items-center gap-1.5 ${
                           c.resolved
                             ? isDark
@@ -2182,9 +2442,9 @@ export const App: React.FC = () => {
                               ? 'bg-amber-500 hover:bg-amber-400 border-amber-300 text-black font-extrabold shadow-xs'
                               : 'bg-[#0E7C86] hover:bg-[#096169] border-[#2DD4BF]/40 text-white shadow-2xs'
                         }`}
-                        title={`Pāriet uz ${c.timecode} (${c.seconds} sek.)`}
+                        title={`Pāriet uz ${tcDisplay} (${c.seconds} sek.)`}
                       >
-                        <span>{c.timecode}</span>
+                        <span>{tcDisplay}</span>
                         {cutDiffSec !== null && (
                           <span className="px-1.5 py-0.5 rounded-md bg-black/40 text-[10px] font-extrabold font-mono-tc">
                             -{cutDiffSec}s
@@ -2288,7 +2548,7 @@ export const App: React.FC = () => {
                               setEditingCommentId(c.id);
                               setEditingCommentText(c.text);
                             }}
-                            aria-label={`Rediģēt komentāru pie ${c.timecode}`}
+                            aria-label={`Rediģēt komentāru pie ${tcDisplay}`}
                             className={`min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer ${
                               isDark ? 'text-[#9FB3C8] hover:text-white' : 'text-[#2C4A5E] hover:text-[#002C37]'
                             }`}
@@ -2301,7 +2561,7 @@ export const App: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => deleteComment(c.id)}
-                            aria-label={`Dzēst komentāru pie ${c.timecode}`}
+                            aria-label={`Dzēst komentāru pie ${tcDisplay}`}
                             className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-rose-500 dark:text-rose-400 hover:bg-rose-500/15 cursor-pointer"
                             title="Dzēst komentāru"
                           >
