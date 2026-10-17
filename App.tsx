@@ -1412,12 +1412,12 @@ export const App: React.FC = () => {
         </div>
       </header>
 
-      {/* MAIN WORKSPACE: 2-Column Kollaborate.tv Layout */}
-      <main id="main-workspace" className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-4 sm:py-5">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+      {/* MAIN WORKSPACE: Fixed 2-Column Desktop Layout (Never wraps or drops below video) */}
+      <main id="main-workspace" className="flex-1 w-full max-w-[1780px] mx-auto px-3 sm:px-5 py-3 sm:py-4 overflow-x-auto">
+        <div className="flex flex-row items-start gap-4 xl:gap-5 min-w-[1020px]">
           
-          {/* LEFT COLUMN: Clean Video Player + Single Comment Input Row (8 cols on desktop) */}
-          <section aria-label="Video atskaņotājs un jauna komentāra ievade" className="lg:col-span-8 flex flex-col gap-2.5">
+          {/* LEFT COLUMN: Clean Video Player + Single Comment Input Row */}
+          <section aria-label="Video atskaņotājs un jauna komentāra ievade" className="flex-1 min-w-0 flex flex-col gap-2.5">
             
             {/* VIDEO PLAYER CONTAINER */}
             <div className={`rounded-2xl overflow-hidden border shadow-lg ui-fast ${
@@ -1969,9 +1969,10 @@ export const App: React.FC = () => {
           </section>
 
           {/* RIGHT COLUMN: Clean Timecoded Comments Log (Zero Cards-in-Cards — Divide-Y Architecture) */}
+          {/* RIGHT COLUMN: Clean Timecoded Comments Log (Fixed width right-side panel) */}
           <aside
             aria-label="Laika kodu komentāru saraksts"
-            className={`lg:col-span-4 rounded-2xl border shadow-lg flex flex-col lg:h-[calc(100dvh-135px)] lg:min-h-[540px] lg:max-h-[790px] overflow-hidden ui-fast ${
+            className={`w-[410px] xl:w-[460px] 2xl:w-[480px] shrink-0 rounded-2xl border shadow-lg flex flex-col h-[calc(100dvh-130px)] min-h-[580px] max-h-[880px] overflow-hidden ui-fast ${
               isDark
                 ? 'bg-[#101C2E] border-[#1E334A]'
                 : 'bg-[#DFE8EE] border-[#B2C7D4]'
@@ -1979,95 +1980,90 @@ export const App: React.FC = () => {
           >
             
             {/* Comments Header */}
-            <div className={`p-4 border-b flex flex-col gap-3 ${
+            <div className={`p-3.5 border-b flex flex-col gap-2.5 ${
               isDark ? 'border-[#1E334A] bg-[#0D1726]/60' : 'border-[#B2C7D4] bg-[#E8EFF3]/60'
             }`}>
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <h2 className={`text-sm sm:text-base font-extrabold ${isDark ? 'text-white' : 'text-[#002C37]'}`}>
-                    Komentāri
-                  </h2>
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold font-mono-tc ${
-                    isDark
-                      ? 'bg-[#162740] text-[#2DD4BF] border border-[#2DD4BF]/30'
-                      : 'bg-[#EAF1F6] text-[#0B626B] border border-[#B2C7D4]'
+                <h2 className={`text-sm sm:text-base font-extrabold flex items-center gap-2 ${isDark ? 'text-white' : 'text-[#002C37]'}`}>
+                  <span>Komentāri</span>
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-mono-tc font-bold ${
+                    isDark ? 'bg-[#162740] text-[#2DD4BF] border border-[#2DD4BF]/30' : 'bg-[#EAF1F6] text-[#0B626B] border border-[#B2C7D4]'
                   }`}>
-                    {resolvedCount}/{comments.length} izlaboti
+                    {comments.length}
                   </span>
-                </div>
+                </h2>
+              </div>
 
-                {/* 3 Dedicated Copy Buttons: Visu, Tikai VO, Tikai labojumus */}
-                <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
-                  <button
-                    type="button"
-                    onClick={() => copyCommentsMode('all')}
-                    disabled={comments.length === 0}
-                    className={`min-h-[34px] px-2.5 py-1 rounded-xl text-[11px] sm:text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1 disabled:opacity-40 ${
-                      copiedMode === 'all'
-                        ? 'bg-[#10B981] border-[#10B981] text-white'
-                        : isDark
-                          ? 'bg-[#162740] border-[#2DD4BF]/40 text-[#2DD4BF] hover:bg-[#1E3454]'
-                          : 'bg-[#EAF1F6] border-[#0E7C86]/40 text-[#0B626B] hover:bg-[#E2ECF2]'
-                    }`}
-                    title="Nokopēt visu pilno sarakstu (hronometrāža, izgriezumi, VO un labojumi)"
-                  >
-                    <span>{copiedMode === 'all' ? 'Nokopēts!' : 'Kopēt visu'}</span>
-                  </button>
+              {/* 4 Dedicated Export Buttons in a Stable 4-Column Grid (Always visible, never truncated) */}
+              <div className="grid grid-cols-4 gap-1.5 w-full">
+                <button
+                  type="button"
+                  onClick={() => copyCommentsMode('all')}
+                  disabled={comments.length === 0}
+                  className={`min-h-[34px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
+                    copiedMode === 'all'
+                      ? 'bg-[#10B981] border-[#10B981] text-white'
+                      : isDark
+                        ? 'bg-[#162740] border-[#2DD4BF]/40 text-[#2DD4BF] hover:bg-[#1E3454]'
+                        : 'bg-[#EAF1F6] border-[#0E7C86]/40 text-[#0B626B] hover:bg-[#E2ECF2]'
+                  }`}
+                  title="Nokopēt visu pilno sarakstu (hronometrāža, izgriezumi, VO un labojumi)"
+                >
+                  <span className="truncate">{copiedMode === 'all' ? 'Nokopēts!' : 'Kopēt visu'}</span>
+                </button>
 
-                  <button
-                    type="button"
-                    onClick={() => copyCommentsMode('vo')}
-                    disabled={comments.length === 0}
-                    className={`min-h-[34px] px-2.5 py-1 rounded-xl text-[11px] sm:text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1 disabled:opacity-40 ${
-                      copiedMode === 'vo'
-                        ? 'bg-amber-500 border-amber-500 text-black'
-                        : isDark
-                          ? 'bg-[#1F2317] border-amber-400/50 text-amber-300 hover:bg-[#282F1E]'
-                          : 'bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100'
-                    }`}
-                    title="Nokopēt TIKAI VO aizkadra tekstus ar laika kodiem (diktoram ierunāšanai)"
-                  >
-                    <span>{copiedMode === 'vo' ? 'VO nokopēts!' : 'Tikai VO'}</span>
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => copyCommentsMode('vo')}
+                  disabled={comments.length === 0}
+                  className={`min-h-[34px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
+                    copiedMode === 'vo'
+                      ? 'bg-amber-500 border-amber-500 text-black'
+                      : isDark
+                        ? 'bg-[#1F2317] border-amber-400/50 text-amber-300 hover:bg-[#282F1E]'
+                        : 'bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100'
+                  }`}
+                  title="Nokopēt TIKAI VO aizkadra tekstus ar laika kodiem (diktoram ierunāšanai)"
+                >
+                  <span className="truncate">{copiedMode === 'vo' ? 'Nokopēts!' : 'Tikai VO'}</span>
+                </button>
 
-                  <button
-                    type="button"
-                    onClick={() => copyCommentsMode('edits')}
-                    disabled={comments.length === 0}
-                    className={`min-h-[34px] px-2.5 py-1 rounded-xl text-[11px] sm:text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1 disabled:opacity-40 ${
-                      copiedMode === 'edits'
-                        ? 'bg-rose-600 border-rose-600 text-white'
-                        : isDark
-                          ? 'bg-[#162740] border-[#243B56] text-[#CBD5E1] hover:text-white hover:bg-[#1E3454]'
-                          : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#E2ECF2]'
-                    }`}
-                    title="Nokopēt TIKAI montāžas labojumus un CUT izgriezumus (montāžistam)"
-                  >
-                    <span>{copiedMode === 'edits' ? 'Labojumi nokopēti!' : 'Tikai labojumus'}</span>
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => copyCommentsMode('edits')}
+                  disabled={comments.length === 0}
+                  className={`min-h-[34px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 text-center ${
+                    copiedMode === 'edits'
+                      ? 'bg-rose-600 border-rose-600 text-white'
+                      : isDark
+                        ? 'bg-[#162740] border-[#243B56] text-[#CBD5E1] hover:text-white hover:bg-[#1E3454]'
+                        : 'bg-[#EAF1F6] border-[#B2C7D4] text-[#002C37] hover:bg-[#E2ECF2]'
+                  }`}
+                  title="Nokopēt TIKAI montāžas labojumus un CUT izgriezumus (montāžistam)"
+                >
+                  <span className="truncate">{copiedMode === 'edits' ? 'Nokopēts!' : 'Labojumi'}</span>
+                </button>
 
-                  {/* 1-Click Export to Google Docs */}
-                  <button
-                    type="button"
-                    onClick={() => exportToGoogleDoc('all')}
-                    disabled={comments.length === 0}
-                    className={`min-h-[34px] px-2.5 py-1 rounded-xl text-[11px] sm:text-xs font-extrabold border ui-fast hover-lift cursor-pointer flex items-center gap-1.5 disabled:opacity-40 shadow-xs ${
-                      isDark
-                        ? 'bg-[#142B47] border-[#2D73B4] text-[#70B4FF] hover:bg-[#1A385C] hover:text-white'
-                        : 'bg-[#E1EDF8] border-[#93C5FD] text-[#1E40AF] hover:bg-[#D3E4F6]'
-                    }`}
-                    title="Nokopēt visu un uzreiz atvērt jaunu Google Doc dokumentu (docs.new)"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                      <polyline points="14 2 14 8 20 8"/>
-                      <line x1="16" y1="13" x2="8" y2="13"/>
-                      <line x1="16" y1="17" x2="8" y2="17"/>
-                      <polyline points="10 9 9 9 8 9"/>
-                    </svg>
-                    <span>Google Doc</span>
-                  </button>
-                </div>
+                {/* 1-Click Export to Google Docs */}
+                <button
+                  type="button"
+                  onClick={() => exportToGoogleDoc('all')}
+                  disabled={comments.length === 0}
+                  className={`min-h-[34px] px-1 py-1 rounded-xl text-[11px] font-extrabold border ui-fast hover-lift cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs text-center ${
+                    isDark
+                      ? 'bg-[#142B47] border-[#2D73B4] text-[#70B4FF] hover:bg-[#1A385C] hover:text-white'
+                      : 'bg-[#E1EDF8] border-[#93C5FD] text-[#1E40AF] hover:bg-[#D3E4F6]'
+                  }`}
+                  title="Nokopēt visu un uzreiz atvērt jaunu Google Doc dokumentu (docs.new)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                  </svg>
+                  <span className="truncate">Doc</span>
+                </button>
               </div>
 
               {/* TV Rough Cut Statistics: Total Cut Duration & Final Broadcast Runtime */}
@@ -2094,47 +2090,6 @@ export const App: React.FC = () => {
                   </div>
                 </div>
               )}
-
-              {/* Filter Tabs (Accessible >= 38px targets) */}
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-1" role="tablist" aria-label="Komentāru filtri">
-                  {(
-                    [
-                      { id: 'all', label: `Visi (${comments.length})` },
-                      { id: 'open', label: `Aktīvie (${comments.length - resolvedCount})` },
-                      { id: 'resolved', label: `Izlabotie (${resolvedCount})` },
-                    ] as const
-                  ).map(tab => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={filterMode === tab.id}
-                      onClick={() => setFilterMode(tab.id)}
-                      className={`min-h-[38px] px-3 py-1.5 rounded-xl text-xs font-bold ui-fast cursor-pointer ${
-                        filterMode === tab.id
-                          ? 'bg-[#0E7C86] text-white shadow-2xs'
-                          : isDark
-                            ? 'text-[#9FB3C8] hover:text-white hover:bg-[#162740]'
-                            : 'text-[#153A54] hover:text-[#002C37] hover:bg-[#EAF1F6]'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                {resolvedCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={clearResolvedComments}
-                    className="min-h-[38px] px-2 text-xs font-bold text-rose-500 dark:text-rose-400 hover:underline cursor-pointer"
-                    title="Dzēst visus kā izlabotus atzīmētos komentārus"
-                  >
-                    Notīrīt izlabotos
-                  </button>
-                )}
-              </div>
             </div>
 
             {/* Undo Banner (Jakob Nielsen Heuristic #3: User control and freedom) */}
@@ -2211,39 +2166,6 @@ export const App: React.FC = () => {
                                 : 'border-l-transparent hover:bg-[#E8EFF3]'
                       }`}
                     >
-                      {/* Checkbox: Mark as Resolved (>= 38px hit wrapper for motor accessibility) */}
-                      <button
-                        type="button"
-                        role="checkbox"
-                        aria-checked={c.resolved}
-                        aria-label={`Atzīmēt komentāru pie ${c.timecode} kā izlabotu`}
-                        onClick={() => toggleCommentResolved(c.id)}
-                        className="min-w-[38px] min-h-[38px] -ml-1 flex items-center justify-center shrink-0 cursor-pointer rounded-lg"
-                        title={c.resolved ? 'Atzīmēts kā izlabots (klikšķini, lai atgrieztu)' : 'Atzīmēt kā izlabotu'}
-                      >
-                        <span className={`w-5 h-5 rounded-md border flex items-center justify-center ui-fast ${
-                          c.resolved
-                            ? 'bg-[#10B981] border-[#10B981] text-white'
-                            : isCutComment
-                              ? isDark
-                                ? 'bg-[#0B131E] border-rose-500/60 group-hover:border-rose-400'
-                                : 'bg-white border-rose-400 group-hover:border-rose-600'
-                            : isVOComment
-                              ? isDark
-                                ? 'bg-[#0B131E] border-amber-400/60 group-hover:border-amber-300'
-                                : 'bg-white border-amber-400 group-hover:border-amber-600'
-                              : isDark
-                                ? 'bg-[#0B131E] border-[#3E5A78] group-hover:border-[#2DD4BF]'
-                                : 'bg-[#E8EFF3] border-[#7896A8] group-hover:border-[#0E7C86]'
-                        }`}>
-                          {c.resolved && (
-                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                              <polyline points="20 6 9 17 4 12"/>
-                            </svg>
-                          )}
-                        </span>
-                      </button>
-
                       {/* Clickable Timecode Pill (MM:SS or Cut Range) */}
                       <button
                         type="button"
